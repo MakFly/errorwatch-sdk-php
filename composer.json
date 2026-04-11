@@ -1,0 +1,92 @@
+{
+    "name": "errorwatch/sdk-php",
+    "description": "ErrorWatch SDK for PHP - Error monitoring for Laravel, Symfony, and vanilla PHP",
+    "version": "2.0.0",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "error-monitoring",
+        "errorwatch",
+        "exception",
+        "apm",
+        "sentry-alternative",
+        "php-sdk",
+        "laravel",
+        "symfony"
+    ],
+    "authors": [
+        {
+            "name": "ErrorWatch",
+            "email": "support@errorwatch.io",
+            "homepage": "https://errorwatch.io"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/MakFly/errorwatch-sdk-php/issues",
+        "source": "https://github.com/MakFly/errorwatch-sdk-php"
+    },
+    "require": {
+        "php": "^8.1",
+        "guzzlehttp/guzzle": "^7.0",
+        "psr/log": "^1.0|^2.0|^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0|^11.0",
+        "orchestra/testbench": "^8.0|^9.0|^10.0",
+        "symfony/framework-bundle": "^6.0|^7.0|^8.0",
+        "symfony/http-client": "^6.0|^7.0|^8.0",
+        "symfony/http-kernel": "^6.0|^7.0|^8.0",
+        "symfony/event-dispatcher": "^6.0|^7.0|^8.0",
+        "symfony/security-bundle": "^6.2|^7.0|^8.0",
+        "symfony/messenger": "^6.0|^7.0|^8.0",
+        "twig/twig": "^3.0",
+        "monolog/monolog": "^3.0",
+        "doctrine/dbal": "^4.4",
+        "mockery/mockery": "^1.6"
+    },
+    "suggest": {
+        "illuminate/support": "Required for Laravel integration (^10.0|^11.0|^12.0|^13.0)",
+        "symfony/framework-bundle": "Required for Symfony integration (^6.0|^7.0|^8.0)",
+        "symfony/http-client": "Required for Symfony HTTP client tracing (^6.0|^7.0|^8.0)",
+        "monolog/monolog": "Required to enable automatic Monolog forwarding",
+        "twig/twig": "Required to enable the session replay Twig extension",
+        "symfony/security-bundle": "Required to enable user context capture and security event tracking",
+        "symfony/messenger": "Required to enable messenger worker failure capture",
+        "doctrine/dbal": "Required to enable Doctrine query tracing in APM"
+    },
+    "autoload": {
+        "psr-4": {
+            "ErrorWatch\\Sdk\\": "src/",
+            "ErrorWatch\\Laravel\\": "src/Laravel/",
+            "ErrorWatch\\Symfony\\": "src/Symfony/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ErrorWatch\\Sdk\\Tests\\": "tests/",
+            "ErrorWatch\\Laravel\\Tests\\": "tests/Laravel/",
+            "ErrorWatch\\Symfony\\Tests\\": "tests/Symfony/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "ErrorWatch\\Laravel\\ErrorWatchServiceProvider"
+            ],
+            "aliases": {
+                "ErrorWatch": "ErrorWatch\\Laravel\\Facades\\ErrorWatch"
+            }
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-html coverage",
+        "post-install-cmd": "ErrorWatch\\Sdk\\Composer\\SymfonyBundleInstaller::postInstall",
+        "post-update-cmd": "ErrorWatch\\Sdk\\Composer\\SymfonyBundleInstaller::postInstall"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

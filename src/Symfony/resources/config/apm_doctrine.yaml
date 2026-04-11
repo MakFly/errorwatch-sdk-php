@@ -1,0 +1,8 @@
+services:
+    ErrorWatch\Symfony\Doctrine\TraceMiddleware:
+        arguments:
+            $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
+            $logQueries: '%error_watch.apm.doctrine.log_queries%'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+        tags:
+            - { name: doctrine.middleware }

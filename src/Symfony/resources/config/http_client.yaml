@@ -1,0 +1,12 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Symfony\Http\TraceableHttpClient:
+        decorates: 'http_client'
+        arguments:
+            $decorated: '@.inner'
+            $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $captureErrorsAsBreadcrumbs: '%error_watch.apm.http_client.capture_errors_as_breadcrumbs%'

@@ -1,0 +1,63 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Sdk\Client:
+        factory: ['ErrorWatch\Symfony\Service\ClientFactory', 'create']
+        arguments:
+            $enabled: '%error_watch.enabled%'
+            $endpoint: '%error_watch.endpoint%'
+            $apiKey: '%error_watch.api_key%'
+            $environment: '%error_watch.environment%'
+            $release: '%error_watch.release%'
+            $maxBreadcrumbs: '%error_watch.breadcrumbs.max_count%'
+            $projectRoot: '%kernel.project_dir%'
+        public: true
+
+    ErrorWatch\Symfony\Service\ErrorWatchLogger:
+        arguments:
+            $logger: '@?Psr\Log\LoggerInterface'
+
+    ErrorWatch\Symfony\Http\MonitoringClient:
+        arguments:
+            $endpoint: '%error_watch.endpoint%'
+            $apiKey: '%error_watch.api_key%'
+            $logger: '@ErrorWatch\Symfony\Service\ErrorWatchLogger'
+
+    ErrorWatch\Symfony\Http\MonitoringClientInterface:
+        alias: ErrorWatch\Symfony\Http\MonitoringClient
+
+    ErrorWatch\Symfony\Service\FingerprintGenerator: ~
+
+    ErrorWatch\Symfony\Service\LevelMapper: ~
+
+    ErrorWatch\Symfony\Service\BreadcrumbService:
+        arguments:
+            $maxBreadcrumbs: '%error_watch.breadcrumbs.max_count%'
+
+    ErrorWatch\Symfony\Service\UserContextService:
+        arguments:
+            $security: '@?Symfony\Bundle\SecurityBundle\Security'
+            $requestStack: '@request_stack'
+            $captureIp: '%error_watch.user_context.capture_ip%'
+
+    ErrorWatch\Symfony\Service\SessionReplayManager:
+        arguments:
+            $endpoint: '%error_watch.endpoint%'
+            $apiKey: '%error_watch.api_key%'
+            $enabled: '%error_watch.replay.enabled%'
+            $debug: '%error_watch.replay.debug%'
+            $sampleRate: '%error_watch.replay.sample_rate%'
+            $release: '%error_watch.release%'
+            $logger: '@ErrorWatch\Symfony\Service\ErrorWatchLogger'
+
+    ErrorWatch\Symfony\EventSubscriber\ExceptionSubscriber:
+        arguments:
+            $client: '@ErrorWatch\Sdk\Client'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $userContextService: '@ErrorWatch\Symfony\Service\UserContextService'
+            $breadcrumbsEnabled: '%error_watch.breadcrumbs.enabled%'
+            $userContextEnabled: '%error_watch.user_context.enabled%'
+        tags:
+            - { name: kernel.event_subscriber }

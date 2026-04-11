@@ -1,0 +1,26 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+
+  ErrorWatch\Symfony\Monolog\ErrorMonitoringHandler:
+    arguments:
+      $client: '@ErrorWatch\Symfony\Http\MonitoringClientInterface'
+      $enabled: '%error_watch.enabled%'
+      $environment: '%error_watch.environment%'
+      $release: '%error_watch.release%'
+      $excludedChannels: '%error_watch.monolog.excluded_channels%'
+      $captureContext: '%error_watch.monolog.capture_context%'
+      $captureExtra: '%error_watch.monolog.capture_extra%'
+      $level: '%error_watch.monolog.level%'
+
+  ErrorWatch\Symfony\Monolog\LogStreamHandler:
+    arguments:
+      $client: '@ErrorWatch\Symfony\Http\MonitoringClientInterface'
+      $enabled: '%error_watch.enabled%'
+      $environment: '%error_watch.environment%'
+      $release: '%error_watch.release%'
+      $excludedChannels: '%error_watch.logs.excluded_channels%'
+      $captureContext: '%error_watch.logs.capture_context%'
+      $captureExtra: '%error_watch.logs.capture_extra%'
+      $level: '%error_watch.logs.level%'

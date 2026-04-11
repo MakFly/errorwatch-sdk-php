@@ -1,0 +1,6 @@
+services:
+    ErrorWatch\Symfony\Twig\ReplayExtension:
+        arguments:
+            $replayManager: '@ErrorWatch\Symfony\Service\SessionReplayManager'
+        tags:
+            - { name: twig.extension }

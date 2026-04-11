@@ -1,0 +1,29 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Symfony\Service\QueryAnalyzer:
+        arguments:
+            $nPlusOneThreshold: '%error_watch.apm.n_plus_one_threshold%'
+            $slowQueryThresholdMs: '%error_watch.apm.slow_query_threshold_ms%'
+
+    ErrorWatch\Symfony\Service\TransactionCollector:
+        calls:
+            - setQueryAnalyzer: ['@ErrorWatch\Symfony\Service\QueryAnalyzer']
+
+    ErrorWatch\Symfony\Service\TransactionSender:
+        arguments:
+            $client: '@ErrorWatch\Symfony\Http\MonitoringClientInterface'
+            $enabled: '%error_watch.apm.enabled%'
+            $environment: '%error_watch.environment%'
+
+    ErrorWatch\Symfony\EventSubscriber\RequestSubscriber:
+        arguments:
+            $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
+            $sender: '@ErrorWatch\Symfony\Service\TransactionSender'
+            $enabled: '%error_watch.apm.request_tracking%'
+            $excludedRoutes: '%error_watch.apm.excluded_routes%'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+        tags:
+            - { name: kernel.event_subscriber }

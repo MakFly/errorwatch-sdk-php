@@ -1,0 +1,14 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Symfony\EventSubscriber\SecuritySubscriber:
+        arguments:
+            $client: '@ErrorWatch\Symfony\Http\MonitoringClientInterface'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $environment: '%error_watch.environment%'
+            $release: '%error_watch.release%'
+            $captureLoginSuccess: '%error_watch.security.capture_login_success%'
+        tags:
+            - { name: kernel.event_subscriber }

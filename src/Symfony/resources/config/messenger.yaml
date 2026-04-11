@@ -1,0 +1,11 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Symfony\EventSubscriber\MessengerSubscriber:
+        arguments:
+            $client: '@ErrorWatch\Sdk\Client'
+            $captureRetries: '%error_watch.messenger.capture_retries%'
+        tags:
+            - { name: kernel.event_subscriber }

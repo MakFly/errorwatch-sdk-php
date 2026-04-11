@@ -1,0 +1,12 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    ErrorWatch\Symfony\EventSubscriber\ConsoleSubscriber:
+        arguments:
+            $client: '@ErrorWatch\Sdk\Client'
+            $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $captureExitCodes: '%error_watch.console.capture_exit_codes%'
+        tags:
+            - { name: kernel.event_subscriber }
