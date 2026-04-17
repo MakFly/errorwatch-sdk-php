@@ -7,6 +7,7 @@ namespace ErrorWatch\Sdk;
 use ErrorWatch\Sdk\Event\Event;
 use ErrorWatch\Sdk\Event\Severity;
 use ErrorWatch\Sdk\Exception\StacktraceBuilder;
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Sdk\Transport\HttpTransport;
 use ErrorWatch\Sdk\Transport\NullTransport;
 use ErrorWatch\Sdk\Transport\TransportInterface;
@@ -16,6 +17,7 @@ class Client
     private readonly Scope             $scope;
     private readonly TransportInterface $transport;
     private readonly StacktraceBuilder  $stacktraceBuilder;
+    private ?TraceContext $traceContext = null;
 
     public function __construct(
         private readonly Options $options,
@@ -137,6 +139,20 @@ class Client
         return $this->options->isEnabled();
     }
 
+    /**
+     * Inject the request-scoped trace context so outgoing events can
+     * carry `trace_id` / `span_id` for distributed correlation.
+     */
+    public function setTraceContext(?TraceContext $traceContext): void
+    {
+        $this->traceContext = $traceContext;
+    }
+
+    public function getTraceContext(): ?TraceContext
+    {
+        return $this->traceContext;
+    }
+
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
@@ -153,6 +169,13 @@ class Client
             }
 
             $payload = $event->toPayload();
+
+            // Merge distributed tracing correlation so logs/errors/spans
+            // emitted during the same request can be linked on the dashboard.
+            if (null !== $this->traceContext && $this->traceContext->hasContext()) {
+                $payload['trace_id'] = $this->traceContext->getTraceId();
+                $payload['span_id'] = $this->traceContext->getCurrentSpanId();
+            }
 
             // beforeSend hook — returning null drops the event
             $beforeSend = $this->options->getBeforeSend();

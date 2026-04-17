@@ -9,3 +9,10 @@ services:
             $captureRetries: '%error_watch.messenger.capture_retries%'
         tags:
             - { name: kernel.event_subscriber }
+
+    ErrorWatch\Symfony\Messenger\TracingMiddleware:
+        arguments:
+            $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
+            $sender: '@ErrorWatch\Symfony\Service\TransactionSender'
+        tags:
+            - { name: messenger.middleware }

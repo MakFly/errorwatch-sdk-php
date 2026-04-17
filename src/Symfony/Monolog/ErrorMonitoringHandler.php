@@ -2,7 +2,10 @@
 
 namespace ErrorWatch\Symfony\Monolog;
 
+use ErrorWatch\Sdk\Exception\StacktraceBuilder;
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Symfony\Http\MonitoringClientInterface;
+use ErrorWatch\Symfony\Service\FingerprintGenerator;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -22,6 +25,9 @@ final class ErrorMonitoringHandler extends AbstractProcessingHandler
         private readonly bool $captureExtra = true,
         int|string|Level $level = Level::Warning,
         bool $bubble = true,
+        private readonly ?TraceContext $traceContext = null,
+        private readonly ?FingerprintGenerator $fingerprintGenerator = null,
+        private readonly ?StacktraceBuilder $stacktraceBuilder = null,
     ) {
         parent::__construct($level, $bubble);
     }
@@ -32,6 +38,13 @@ final class ErrorMonitoringHandler extends AbstractProcessingHandler
             return;
         }
 
+        // When the record carries a Throwable, the ExceptionSubscriber already
+        // reports it with v2 fingerprint + structured frames. Skipping here
+        // avoids creating a duplicate error_group with a mismatched fingerprint.
+        if (($record->context['exception'] ?? null) instanceof \Throwable) {
+            return;
+        }
+
         $context = $this->captureContext ? $this->normalize($record->context) : [];
         $extra = $this->captureExtra ? $this->normalize($record->extra) : [];
 
@@ -39,15 +52,7 @@ final class ErrorMonitoringHandler extends AbstractProcessingHandler
         $file = 'monolog';
         $line = 1;
         $stack = $record->channel.'.'.$record->level->name.': '.$record->message;
-
-        if (($record->context['exception'] ?? null) instanceof \Throwable) {
-            /** @var \Throwable $exception */
-            $exception = $record->context['exception'];
-            $message = '' !== $exception->getMessage() ? $exception->getMessage() : $message;
-            $file = $exception->getFile();
-            $line = $exception->getLine();
-            $stack = $exception->getTraceAsString();
-        }
+        $exception = null;
 
         $payload = [
             'message' => $message,
@@ -59,6 +64,31 @@ final class ErrorMonitoringHandler extends AbstractProcessingHandler
             'release' => $this->release,
             'created_at' => (int) $record->datetime->format('Uv'),
         ];
+
+        // When the log carries an actual Throwable, send the same rich
+        // payload as the ExceptionSubscriber path so the dashboard dedupe
+        // keeps the version with frames + fingerprint regardless of which
+        // handler ran first.
+        if (null !== $exception) {
+            if (null !== $this->fingerprintGenerator) {
+                $payload['fingerprint'] = $this->fingerprintGenerator->generate(
+                    $exception->getMessage(),
+                    $exception->getFile(),
+                    $exception->getLine(),
+                );
+            }
+            if (null !== $this->stacktraceBuilder) {
+                $payload['frames'] = array_map(
+                    static fn ($frame) => $frame->toArray(),
+                    $this->stacktraceBuilder->buildFromThrowable($exception),
+                );
+            }
+        }
+
+        if (null !== $this->traceContext && $this->traceContext->hasContext()) {
+            $payload['trace_id'] = $this->traceContext->getTraceId();
+            $payload['span_id'] = $this->traceContext->getCurrentSpanId();
+        }
 
         if (!empty($context) || !empty($extra)) {
             $payload['context'] = array_filter([

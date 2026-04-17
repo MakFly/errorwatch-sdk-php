@@ -2,6 +2,7 @@
 
 namespace ErrorWatch\Symfony\Monolog;
 
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Symfony\Http\MonitoringClientInterface;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
@@ -22,6 +23,7 @@ final class LogStreamHandler extends AbstractProcessingHandler
         private readonly bool $captureExtra = true,
         int|string|Level $level = Level::Debug,
         bool $bubble = true,
+        private readonly ?TraceContext $traceContext = null,
     ) {
         parent::__construct($level, $bubble);
     }
@@ -47,8 +49,6 @@ final class LogStreamHandler extends AbstractProcessingHandler
             'level' => $this->mapLevel($record->level),
             'channel' => $record->channel,
             'message' => $record->message,
-            'context' => $context,
-            'extra' => $extra,
             'env' => $this->environment,
             'release' => $this->release,
             'source' => $source,
@@ -56,6 +56,20 @@ final class LogStreamHandler extends AbstractProcessingHandler
             'request_id' => $record->extra['request_id'] ?? $record->context['request_id'] ?? null,
             'user_id' => $record->context['user_id'] ?? null,
         ];
+
+        // Skip empty context/extra so json_encode produces `{}` instead of
+        // `[]`, which would fail the API's Record<string, unknown> Zod schema.
+        if (!empty($context)) {
+            $payload['context'] = $context;
+        }
+        if (!empty($extra)) {
+            $payload['extra'] = $extra;
+        }
+
+        if (null !== $this->traceContext && $this->traceContext->hasContext()) {
+            $payload['trace_id'] = $this->traceContext->getTraceId();
+            $payload['span_id'] = $this->traceContext->getCurrentSpanId();
+        }
 
         try {
             $this->client->sendLog($payload);

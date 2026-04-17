@@ -3,3 +3,6 @@
 /.phpunit.cache/
 /coverage/
 composer.lock
+
+# instant-grep index
+.ig/

@@ -13,6 +13,9 @@ services:
       $captureContext: '%error_watch.monolog.capture_context%'
       $captureExtra: '%error_watch.monolog.capture_extra%'
       $level: '%error_watch.monolog.level%'
+      $traceContext: '@ErrorWatch\Sdk\Tracing\TraceContext'
+      $fingerprintGenerator: '@ErrorWatch\Symfony\Service\FingerprintGenerator'
+      $stacktraceBuilder: '@ErrorWatch\Sdk\Exception\StacktraceBuilder'
 
   ErrorWatch\Symfony\Monolog\LogStreamHandler:
     arguments:
@@ -24,3 +27,4 @@ services:
       $captureContext: '%error_watch.logs.capture_context%'
       $captureExtra: '%error_watch.logs.capture_extra%'
       $level: '%error_watch.logs.level%'
+      $traceContext: '@ErrorWatch\Sdk\Tracing\TraceContext'

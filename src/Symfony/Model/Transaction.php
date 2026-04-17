@@ -12,6 +12,8 @@ final class Transaction
     private string $status = 'ok';
     private int $startTimestamp;
     private ?int $endTimestamp = null;
+    private ?string $traceId = null;
+    private ?string $parentSpanId = null;
     /** @var Span[] */
     private array $spans = [];
     /** @var array<string, string> */
@@ -25,6 +27,26 @@ final class Transaction
         $this->name = $name;
         $this->op = $op;
         $this->startTimestamp = (int) (microtime(true) * 1000);
+    }
+
+    public function setTraceId(?string $traceId): void
+    {
+        $this->traceId = $traceId;
+    }
+
+    public function setParentSpanId(?string $parentSpanId): void
+    {
+        $this->parentSpanId = $parentSpanId;
+    }
+
+    public function getTraceId(): ?string
+    {
+        return $this->traceId;
+    }
+
+    public function getId(): string
+    {
+        return $this->id;
     }
 
     public function finish(): void
@@ -85,6 +107,8 @@ final class Transaction
             'startTimestamp' => $this->startTimestamp,
             'endTimestamp' => $this->endTimestamp,
             'duration' => $this->getDurationMs(),
+            'traceId' => $this->traceId,
+            'parentSpanId' => $this->parentSpanId,
             'spans' => array_map(fn (Span $span) => $span->toArray(), $this->spans),
             'tags' => $this->tags,
             'data' => $this->data,

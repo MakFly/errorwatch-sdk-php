@@ -197,4 +197,24 @@ class MonitoringClient implements MonitoringClientInterface
         } catch (\Throwable) {
         }
     }
+
+    public function sendCronCheckin(array $payload): void
+    {
+        if (!$this->configured) {
+            return;
+        }
+
+        try {
+            $response = $this->client->request('POST', $this->endpoint.'/api/v1/cron/checkin', [
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'X-API-Key' => $this->apiKey,
+                ],
+                'body' => json_encode($payload),
+                'timeout' => 2,
+            ]);
+            $response->getStatusCode();
+        } catch (\Throwable) {
+        }
+    }
 }

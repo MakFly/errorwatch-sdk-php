@@ -9,6 +9,8 @@ services:
             $slowQueryThresholdMs: '%error_watch.apm.slow_query_threshold_ms%'
 
     ErrorWatch\Symfony\Service\TransactionCollector:
+        arguments:
+            $traceContext: '@ErrorWatch\Sdk\Tracing\TraceContext'
         calls:
             - setQueryAnalyzer: ['@ErrorWatch\Symfony\Service\QueryAnalyzer']
 
@@ -25,5 +27,7 @@ services:
             $enabled: '%error_watch.apm.request_tracking%'
             $excludedRoutes: '%error_watch.apm.excluded_routes%'
             $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $traceContext: '@ErrorWatch\Sdk\Tracing\TraceContext'
+            $tracingEnabled: true
         tags:
             - { name: kernel.event_subscriber }

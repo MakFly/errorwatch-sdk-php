@@ -2,6 +2,7 @@
 
 namespace ErrorWatch\Symfony\EventSubscriber;
 
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Symfony\Model\Breadcrumb;
 use ErrorWatch\Symfony\Service\BreadcrumbService;
 use ErrorWatch\Symfony\Service\TransactionCollector;
@@ -22,6 +23,8 @@ final class RequestSubscriber implements EventSubscriberInterface
         private readonly bool $enabled,
         private readonly array $excludedRoutes = [],
         private readonly ?BreadcrumbService $breadcrumbService = null,
+        private readonly ?TraceContext $traceContext = null,
+        private readonly bool $tracingEnabled = true,
     ) {
     }
 
@@ -35,11 +38,27 @@ final class RequestSubscriber implements EventSubscriberInterface
 
     public function onRequest(RequestEvent $event): void
     {
-        if (!$this->enabled || !$event->isMainRequest()) {
+        if (!$event->isMainRequest()) {
             return;
         }
 
         $request = $event->getRequest();
+
+        // Start the trace context first so any log/error emitted during
+        // this request carries a trace id, regardless of APM enabled state.
+        if ($this->tracingEnabled && null !== $this->traceContext) {
+            $parsed = TraceContext::parseTraceparent($request->headers->get('traceparent'));
+            if (null !== $parsed) {
+                $this->traceContext->start($parsed['traceId'], $parsed['spanId'], $parsed['sampled']);
+            } else {
+                $this->traceContext->start();
+            }
+        }
+
+        if (!$this->enabled) {
+            return;
+        }
+
         $route = $request->attributes->get('_route', '');
 
         if (in_array($route, $this->excludedRoutes, true)) {
@@ -59,21 +78,27 @@ final class RequestSubscriber implements EventSubscriberInterface
 
     public function onTerminate(TerminateEvent $event): void
     {
-        if (!$this->collector->hasTransaction()) {
-            return;
+        try {
+            if (!$this->collector->hasTransaction()) {
+                return;
+            }
+
+            $response = $event->getResponse();
+            $statusCode = $response->getStatusCode();
+
+            $status = $statusCode >= 500 ? 'error' : 'ok';
+            $txn = $this->collector->finishTransaction($status);
+
+            if (null === $txn) {
+                return;
+            }
+
+            $txn->setTag('http.status_code', (string) $statusCode);
+            $this->sender->send($txn);
+        } finally {
+            // Release the trace context even if anything above throws so
+            // long-running workers don't leak state across requests.
+            $this->traceContext?->reset();
         }
-
-        $response = $event->getResponse();
-        $statusCode = $response->getStatusCode();
-
-        $status = $statusCode >= 500 ? 'error' : 'ok';
-        $txn = $this->collector->finishTransaction($status);
-
-        if (null === $txn) {
-            return;
-        }
-
-        $txn->setTag('http.status_code', (string) $statusCode);
-        $this->sender->send($txn);
     }
 }

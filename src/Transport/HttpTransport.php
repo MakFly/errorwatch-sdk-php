@@ -23,7 +23,10 @@ class HttpTransport implements TransportInterface
         ?Client                  $client  = null,
     ) {
         $this->logger   = $logger ?? new NullLogger();
-        $this->eventUrl = rtrim($endpoint, '/') . '/api/v1/event';
+        // /api/v1/envelope accepts the rich Sentry-style payload produced
+        // by Sdk\Event::toPayload(). Legacy /api/v1/event remains for flat
+        // (file/line/stack) payloads emitted by other integrations.
+        $this->eventUrl = rtrim($endpoint, '/') . '/api/v1/envelope';
         $this->client   = $client ?? new Client([
             'timeout'         => $timeout,
             'connect_timeout' => 3,

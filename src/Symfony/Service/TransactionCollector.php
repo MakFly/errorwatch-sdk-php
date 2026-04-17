@@ -2,6 +2,7 @@
 
 namespace ErrorWatch\Symfony\Service;
 
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Symfony\Model\Span;
 use ErrorWatch\Symfony\Model\Transaction;
 
@@ -9,6 +10,11 @@ final class TransactionCollector
 {
     private ?Transaction $current = null;
     private ?QueryAnalyzer $queryAnalyzer = null;
+
+    public function __construct(
+        private readonly ?TraceContext $traceContext = null,
+    ) {
+    }
 
     public function setQueryAnalyzer(QueryAnalyzer $queryAnalyzer): void
     {
@@ -18,6 +24,11 @@ final class TransactionCollector
     public function startTransaction(string $name, string $op = 'http.server'): Transaction
     {
         $this->current = new Transaction($name, $op);
+
+        if (null !== $this->traceContext && $this->traceContext->hasContext()) {
+            $this->current->setTraceId($this->traceContext->getTraceId());
+            $this->current->setParentSpanId($this->traceContext->getParentSpanId());
+        }
 
         return $this->current;
     }

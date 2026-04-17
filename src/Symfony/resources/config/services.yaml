@@ -13,6 +13,7 @@ services:
             $release: '%error_watch.release%'
             $maxBreadcrumbs: '%error_watch.breadcrumbs.max_count%'
             $projectRoot: '%kernel.project_dir%'
+            $traceContext: '@ErrorWatch\Sdk\Tracing\TraceContext'
         public: true
 
     ErrorWatch\Symfony\Service\ErrorWatchLogger:
@@ -28,9 +29,23 @@ services:
     ErrorWatch\Symfony\Http\MonitoringClientInterface:
         alias: ErrorWatch\Symfony\Http\MonitoringClient
 
+    ErrorWatch\Symfony\Cron\CronCheckinClient:
+        arguments:
+            $client: '@ErrorWatch\Symfony\Http\MonitoringClient'
+            $environment: '%error_watch.environment%'
+
     ErrorWatch\Symfony\Service\FingerprintGenerator: ~
 
     ErrorWatch\Symfony\Service\LevelMapper: ~
+
+    # Trace correlation + frames builder are framework-agnostic Sdk
+    # primitives, declared here so every Symfony service layer can
+    # autowire them (Monolog handlers, subscribers, …).
+    ErrorWatch\Sdk\Tracing\TraceContext: ~
+
+    ErrorWatch\Sdk\Exception\StacktraceBuilder:
+        arguments:
+            $projectRoot: '%kernel.project_dir%'
 
     ErrorWatch\Symfony\Service\BreadcrumbService:
         arguments:

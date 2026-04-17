@@ -2,28 +2,23 @@
 
 namespace ErrorWatch\Symfony\Service;
 
+use ErrorWatch\Sdk\Exception\StacktraceBuilder;
+use ErrorWatch\Sdk\Tracing\TraceContext;
 use ErrorWatch\Symfony\Http\MonitoringClientInterface;
 
 class ErrorSender implements ErrorSenderInterface
 {
-    private bool $enabled;
-    private ?string $environment;
-    private ?string $release;
-    private MonitoringClientInterface $client;
-    private LevelMapper $levelMapper;
-
     public function __construct(
-        bool $enabled,
-        ?string $environment,
-        ?string $release,
-        MonitoringClientInterface $client,
-        LevelMapper $levelMapper,
+        private readonly bool $enabled,
+        private readonly ?string $environment,
+        private readonly ?string $release,
+        private readonly MonitoringClientInterface $client,
+        private readonly LevelMapper $levelMapper,
+        private readonly ?FingerprintGenerator $fingerprintGenerator = null,
+        private readonly ?StacktraceBuilder $stacktraceBuilder = null,
+        private readonly ?TraceContext $traceContext = null,
+        private readonly bool $framesEnabled = true,
     ) {
-        $this->enabled = $enabled;
-        $this->environment = $environment;
-        $this->release = $release;
-        $this->client = $client;
-        $this->levelMapper = $levelMapper;
     }
 
     public function send(
@@ -57,7 +52,6 @@ class ErrorSender implements ErrorSenderInterface
         $file = $throwable->getFile();
         $line = $throwable->getLine();
 
-        // Auto-detect level from exception if not provided
         $resolvedLevel = $level;
         if (null === $resolvedLevel || !LevelMapper::isValidLevel($resolvedLevel)) {
             $resolvedLevel = $this->levelMapper->mapException($throwable);
@@ -75,28 +69,49 @@ class ErrorSender implements ErrorSenderInterface
             'created_at' => (int) (microtime(true) * 1000),
         ];
 
-        // Only include status_code if it's an HTTP exception
+        // --- Sprint 1 enrichments ---
+
+        // Explicit fingerprint keeps grouping stable across deploys and
+        // wins over the default file/line fingerprint on the API side.
+        if (null !== $this->fingerprintGenerator) {
+            $payload['fingerprint'] = $this->fingerprintGenerator->generate(
+                $throwable->getMessage(),
+                $file,
+                $line,
+            );
+        }
+
+        // Structured frames with in_app detection + source context, so the
+        // dashboard can render a proper stack viewer.
+        if ($this->framesEnabled && null !== $this->stacktraceBuilder) {
+            $payload['frames'] = array_map(
+                static fn ($frame) => $frame->toArray(),
+                $this->stacktraceBuilder->buildFromThrowable($throwable),
+            );
+        }
+
+        // Distributed tracing correlation — errors become navigable from
+        // the Overview widget and from logs carrying the same trace_id.
+        if (null !== $this->traceContext && $this->traceContext->hasContext()) {
+            $payload['trace_id'] = $this->traceContext->getTraceId();
+            $payload['span_id'] = $this->traceContext->getCurrentSpanId();
+        }
+
         if ($throwable instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
             $payload['status_code'] = $throwable->getStatusCode();
         }
 
-        // Include session_id for replay linking (only for critical errors)
         $criticalLevels = [LevelMapper::LEVEL_FATAL, LevelMapper::LEVEL_ERROR];
         if (null !== $sessionId && in_array($resolvedLevel, $criticalLevels, true)) {
             $payload['session_id'] = $sessionId;
         }
 
-        // Add breadcrumbs from context
         if (!empty($context['breadcrumbs'])) {
             $payload['breadcrumbs'] = $context['breadcrumbs'];
         }
-
-        // Add user context
         if (!empty($context['user'])) {
             $payload['user'] = $context['user'];
         }
-
-        // Add request context
         if (!empty($context['request'])) {
             $payload['request'] = $context['request'];
         }
