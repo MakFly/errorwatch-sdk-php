@@ -6,3 +6,4 @@ composer.lock
 
 # instant-grep index
 .ig/
+.ignore

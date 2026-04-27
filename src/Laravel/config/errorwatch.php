@@ -81,10 +81,17 @@ return [
             'log_queries' => true,
         ],
 
-        // HTTP client configuration
+        // HTTP client configuration (Laravel Http facade)
         'http_client' => [
             'enabled' => true,
             'capture_errors_as_breadcrumbs' => true,
+        ],
+
+        // Laravel Cache instrumentation (Cache facade + container resolves)
+        // Emits cache.get_item / cache.put_item / cache.remove_item spans
+        // for every cache event fired during a tracked transaction.
+        'cache' => [
+            'enabled' => true,
         ],
 
         // Performance thresholds

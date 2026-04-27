@@ -11,6 +11,7 @@ use ErrorWatch\Laravel\Http\Middleware\ErrorWatchMiddleware;
 use ErrorWatch\Laravel\Logging\ErrorWatchLogger;
 use ErrorWatch\Laravel\Logging\ErrorWatchExceptionHandler;
 use ErrorWatch\Laravel\Services\DeprecationHandler;
+use ErrorWatch\Laravel\Services\CacheListener;
 use ErrorWatch\Laravel\Services\HttpClientListener;
 use ErrorWatch\Laravel\Services\QueryListener;
 use ErrorWatch\Laravel\Services\QueueListener;
@@ -83,8 +84,11 @@ class ErrorWatchServiceProvider extends ServiceProvider
         // Register queue listener
         $this->registerQueueListener();
 
-        // Register HTTP client listener
+        // Register HTTP client listener (Laravel Http facade events)
         $this->registerHttpClientListener();
+
+        // Register cache listener (Laravel Cache events)
+        $this->registerCacheListener();
 
         // Register deprecation handler
         $this->registerDeprecationHandler();
@@ -151,6 +155,13 @@ class ErrorWatchServiceProvider extends ServiceProvider
     /**
      * Register HTTP client listener.
      */
+    protected function registerCacheListener(): void
+    {
+        if ($this->app['config']->get('errorwatch.apm.cache.enabled', true)) {
+            $this->app->make(CacheListener::class)->register();
+        }
+    }
+
     protected function registerHttpClientListener(): void
     {
         if ($this->app['config']->get('errorwatch.apm.http_client.enabled', true)) {

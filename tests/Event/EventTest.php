@@ -35,7 +35,7 @@ class EventTest extends TestCase
         $this->assertSame('Hello world', $payload['message']);
         $this->assertArrayHasKey('sdk', $payload);
         $this->assertSame('errorwatch-php', $payload['sdk']['name']);
-        $this->assertSame('2.0.0', $payload['sdk']['version']);
+        $this->assertSame('2.1.0', $payload['sdk']['version']);
         $this->assertArrayHasKey('contexts', $payload);
         $this->assertArrayHasKey('runtime', $payload['contexts']);
         $this->assertArrayHasKey('os', $payload['contexts']);

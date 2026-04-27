@@ -11,7 +11,7 @@ use ErrorWatch\Sdk\Options;
 class Event
 {
     private const SDK_NAME    = 'errorwatch-php';
-    private const SDK_VERSION = '2.0.0';
+    private const SDK_VERSION = '2.1.0';
 
     private string  $eventId;
     private string  $timestamp;
