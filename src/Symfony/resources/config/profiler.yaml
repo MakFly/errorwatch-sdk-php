@@ -1,0 +1,23 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # Per-request profile bag (singleton scoped to one request).
+    ErrorWatch\Symfony\Profiler\RequestProfile: ~
+
+    # Bootstraps the bag at the start of every main request.
+    ErrorWatch\Symfony\EventSubscriber\ProfileSubscriber:
+        arguments:
+            $profile: '@ErrorWatch\Symfony\Profiler\RequestProfile'
+            $enabled: '%error_watch.profiler.enabled%'
+        tags:
+            - { name: kernel.event_subscriber }
+
+    # Captures sent mail messages.
+    ErrorWatch\Symfony\EventSubscriber\MailSubscriber:
+        arguments:
+            $profile: '@ErrorWatch\Symfony\Profiler\RequestProfile'
+            $enabled: '%error_watch.profiler.enabled%'
+        tags:
+            - { name: kernel.event_subscriber }

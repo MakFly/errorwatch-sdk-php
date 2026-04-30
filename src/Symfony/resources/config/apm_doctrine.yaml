@@ -4,5 +4,6 @@ services:
             $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
             $logQueries: '%error_watch.apm.doctrine.log_queries%'
             $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
+            $profile: '@?ErrorWatch\Symfony\Profiler\RequestProfile'
         tags:
             - { name: doctrine.middleware }

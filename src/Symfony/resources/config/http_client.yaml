@@ -10,3 +10,4 @@ services:
             $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
             $breadcrumbService: '@ErrorWatch\Symfony\Service\BreadcrumbService'
             $captureErrorsAsBreadcrumbs: '%error_watch.apm.http_client.capture_errors_as_breadcrumbs%'
+            $profile: '@?ErrorWatch\Symfony\Profiler\RequestProfile'
