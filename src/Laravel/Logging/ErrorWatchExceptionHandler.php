@@ -6,6 +6,7 @@ namespace ErrorWatch\Laravel\Logging;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class ErrorWatchExceptionHandler implements ExceptionHandler
@@ -22,7 +23,11 @@ class ErrorWatchExceptionHandler implements ExceptionHandler
     public function report(Throwable $e): void
     {
         if ($this->shouldReport($e)) {
-            $this->logger->handleException($e);
+            $context = [];
+            if ($e instanceof HttpExceptionInterface) {
+                $context['status_code'] = $e->getStatusCode();
+            }
+            $this->logger->handleException($e, $context);
         }
 
         $this->handler->report($e);

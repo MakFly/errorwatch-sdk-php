@@ -171,6 +171,11 @@ class MonitoringClient
             if (!empty($context['extra'])) {
                 $extraScope->setExtras($context['extra']);
             }
+            if (!empty($context['status_code'])) {
+                $statusCode = (int) $context['status_code'];
+                $extraScope->setTag('http.status_code', (string) $statusCode);
+                $extraScope->setExtra('status_code', $statusCode);
+            }
             // Attach trace context if there is an active transaction
             if ($this->currentTransaction !== null) {
                 $extraScope->setExtra('session_id', $this->currentTransaction->getTraceId());

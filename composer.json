@@ -1,7 +1,6 @@
 {
     "name": "errorwatch/sdk-php",
     "description": "ErrorWatch SDK for PHP - Error monitoring for Laravel, Symfony, and vanilla PHP",
-    "version": "2.1.0",
     "type": "library",
     "license": "MIT",
     "keywords": [
