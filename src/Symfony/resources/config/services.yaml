@@ -74,5 +74,7 @@ services:
             $userContextService: '@ErrorWatch\Symfony\Service\UserContextService'
             $breadcrumbsEnabled: '%error_watch.breadcrumbs.enabled%'
             $userContextEnabled: '%error_watch.user_context.enabled%'
+            $profile: '@?ErrorWatch\Symfony\Profiler\RequestProfile'
+            $profilerEnabled: '%error_watch.profiler.enabled%'
         tags:
             - { name: kernel.event_subscriber }

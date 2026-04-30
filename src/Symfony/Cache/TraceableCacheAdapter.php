@@ -3,6 +3,7 @@
 namespace ErrorWatch\Symfony\Cache;
 
 use ErrorWatch\Symfony\Model\Span;
+use ErrorWatch\Symfony\Profiler\RequestProfile;
 use ErrorWatch\Symfony\Service\TransactionCollector;
 use Psr\Cache\CacheItemInterface;
 use Symfony\Component\Cache\Adapter\AdapterInterface;
@@ -19,7 +20,15 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
     public function __construct(
         private readonly CacheInterface&AdapterInterface $decorated,
         private readonly TransactionCollector $collector,
+        private readonly ?RequestProfile $profile = null,
     ) {
+    }
+
+    private function pushOp(string $type, string $key): void
+    {
+        if ($this->profile !== null && $this->profile->isStarted()) {
+            $this->profile->recordCacheOp($type, $key, null);
+        }
     }
 
     public function get(string $key, callable $callback, ?float $beta = null, ?array &$metadata = null): mixed
@@ -46,6 +55,7 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
         } finally {
             $span->finish();
             $this->collector->addSpan($span);
+            $this->pushOp($hit ? 'hit' : 'miss', $key);
         }
     }
 
@@ -65,6 +75,7 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
         } finally {
             $span->finish();
             $this->collector->addSpan($span);
+            $this->pushOp('delete', $key);
         }
     }
 
@@ -77,6 +88,7 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
             $item = $this->decorated->getItem($key);
             $span->setData('cache.hit', $item->isHit());
             $span->setStatus('ok');
+            $this->pushOp($item->isHit() ? 'hit' : 'miss', (string) $key);
 
             return $item;
         } catch (\Throwable $e) {
@@ -129,6 +141,7 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
         } finally {
             $span->finish();
             $this->collector->addSpan($span);
+            $this->pushOp('write', $item->getKey());
         }
     }
 
@@ -149,6 +162,7 @@ final class TraceableCacheAdapter implements CacheInterface, AdapterInterface
         } finally {
             $span->finish();
             $this->collector->addSpan($span);
+            $this->pushOp('write', $item->getKey());
         }
     }
 

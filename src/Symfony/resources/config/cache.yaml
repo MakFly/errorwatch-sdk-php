@@ -8,3 +8,4 @@ services:
         arguments:
             $decorated: '@.inner'
             $collector: '@ErrorWatch\Symfony\Service\TransactionCollector'
+            $profile: '@?ErrorWatch\Symfony\Profiler\RequestProfile'

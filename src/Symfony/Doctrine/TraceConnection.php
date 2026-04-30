@@ -7,6 +7,7 @@ use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
 use ErrorWatch\Symfony\Model\Breadcrumb;
 use ErrorWatch\Symfony\Model\Span;
+use ErrorWatch\Symfony\Profiler\RequestProfile;
 use ErrorWatch\Symfony\Service\BreadcrumbService;
 use ErrorWatch\Symfony\Service\TransactionCollector;
 
@@ -17,13 +18,14 @@ final class TraceConnection extends AbstractConnectionMiddleware
         private readonly TransactionCollector $collector,
         private readonly bool $logQueries,
         private readonly ?BreadcrumbService $breadcrumbService = null,
+        private readonly ?RequestProfile $profile = null,
     ) {
         parent::__construct($connection);
     }
 
     public function prepare(string $sql): StatementInterface
     {
-        return new TraceStatement(parent::prepare($sql), $this->collector, $sql, $this->logQueries, $this->breadcrumbService);
+        return new TraceStatement(parent::prepare($sql), $this->collector, $sql, $this->logQueries, $this->breadcrumbService, $this->profile);
     }
 
     public function query(string $sql): Result
@@ -44,6 +46,9 @@ final class TraceConnection extends AbstractConnectionMiddleware
             $this->breadcrumbService?->add(Breadcrumb::console(
                 sprintf('SQL: %s', self::sanitize($sql)),
             ));
+            if ($this->profile !== null && $this->profile->isStarted()) {
+                $this->profile->recordQuery($sql, [], $span->getDurationMs(), 'default');
+            }
         }
     }
 

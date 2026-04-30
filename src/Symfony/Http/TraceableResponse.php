@@ -4,6 +4,7 @@ namespace ErrorWatch\Symfony\Http;
 
 use ErrorWatch\Symfony\Model\Breadcrumb;
 use ErrorWatch\Symfony\Model\Span;
+use ErrorWatch\Symfony\Profiler\RequestProfile;
 use ErrorWatch\Symfony\Service\BreadcrumbService;
 use ErrorWatch\Symfony\Service\TransactionCollector;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -20,6 +21,7 @@ final class TraceableResponse implements ResponseInterface
         private readonly bool $captureErrorsAsBreadcrumbs,
         private readonly string $method,
         private readonly string $url,
+        private readonly ?RequestProfile $profile = null,
     ) {
     }
 
@@ -103,6 +105,10 @@ final class TraceableResponse implements ResponseInterface
                 $statusCode,
                 sprintf('%s %s returned %d', $this->method, $this->url, $statusCode),
             ));
+        }
+
+        if ($this->profile !== null && $this->profile->isStarted()) {
+            $this->profile->recordHttpRequest($this->method, $this->url, $statusCode, $this->span->getDurationMs());
         }
     }
 }

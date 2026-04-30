@@ -145,6 +145,10 @@ final class ErrorWatchExtension extends Extension implements PrependExtensionInt
             }
         }
 
+        // Profiler parameters (full request profile, off by default)
+        $container->setParameter('error_watch.profiler.enabled', $config['profiler']['enabled']);
+        $loader->load('profiler.yaml');
+
         // Monolog parameters
         $container->setParameter('error_watch.monolog.enabled', $config['monolog']['enabled']);
         $container->setParameter('error_watch.monolog.level', $config['monolog']['level']);

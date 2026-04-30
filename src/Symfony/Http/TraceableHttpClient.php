@@ -3,6 +3,7 @@
 namespace ErrorWatch\Symfony\Http;
 
 use ErrorWatch\Symfony\Model\Span;
+use ErrorWatch\Symfony\Profiler\RequestProfile;
 use ErrorWatch\Symfony\Service\BreadcrumbService;
 use ErrorWatch\Symfony\Service\TransactionCollector;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -16,6 +17,7 @@ final class TraceableHttpClient implements HttpClientInterface
         private readonly TransactionCollector $collector,
         private readonly ?BreadcrumbService $breadcrumbService = null,
         private readonly bool $captureErrorsAsBreadcrumbs = true,
+        private readonly ?RequestProfile $profile = null,
     ) {
     }
 
@@ -33,6 +35,7 @@ final class TraceableHttpClient implements HttpClientInterface
             $this->captureErrorsAsBreadcrumbs,
             $method,
             $url,
+            $this->profile,
         );
     }
 

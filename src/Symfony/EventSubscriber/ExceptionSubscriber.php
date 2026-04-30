@@ -4,10 +4,12 @@ namespace ErrorWatch\Symfony\EventSubscriber;
 
 use ErrorWatch\Sdk\Client;
 use ErrorWatch\Sdk\Scope;
+use ErrorWatch\Symfony\Profiler\RequestProfile;
 use ErrorWatch\Symfony\Service\BreadcrumbService;
 use ErrorWatch\Symfony\Service\UserContextService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelEvents;
 
@@ -18,6 +20,7 @@ final class ExceptionSubscriber implements EventSubscriberInterface
     private ?UserContextService $userContextService;
     private bool $breadcrumbsEnabled;
     private bool $userContextEnabled;
+    private bool $profilerEnabled;
 
     /**
      * URL patterns to ALWAYS ignore (for ALL exception types)
@@ -58,7 +61,10 @@ final class ExceptionSubscriber implements EventSubscriberInterface
         ?UserContextService $userContextService = null,
         bool $breadcrumbsEnabled = true,
         bool $userContextEnabled = true,
+        private readonly ?RequestProfile $profile = null,
+        mixed $profilerEnabled = false,
     ) {
+        $this->profilerEnabled = (bool) filter_var($profilerEnabled, FILTER_VALIDATE_BOOLEAN);
         $this->client = $client;
         $this->breadcrumbService = $breadcrumbService;
         $this->userContextService = $userContextService;
@@ -102,6 +108,22 @@ final class ExceptionSubscriber implements EventSubscriberInterface
 
         // Build per-call scope with context
         $scope = $this->buildScope($url, $sessionId);
+
+        // Attach HTTP status code from HttpException, if any.
+        if ($throwable instanceof HttpExceptionInterface) {
+            $scope->setTag('http.status_code', (string) $throwable->getStatusCode());
+            $scope->setExtra('status_code', $throwable->getStatusCode());
+        }
+
+        // Attach the per-request profile snapshot, if profiler is on.
+        if ($this->profilerEnabled && $this->profile !== null && $this->profile->isStarted()) {
+            try {
+                $statusCode = $throwable instanceof HttpExceptionInterface ? $throwable->getStatusCode() : null;
+                $scope->setProfile($this->profile->toArray($throwable, $statusCode));
+            } catch (\Throwable) {
+                // Never break the report path from inside the profiler.
+            }
+        }
 
         $this->client->captureException($throwable, $scope);
     }
