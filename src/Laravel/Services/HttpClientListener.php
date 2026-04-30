@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Services;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
@@ -120,7 +121,23 @@ class HttpClientListener
             }
         }
 
+        $this->pushToProfile($pending['method'], $pending['url'], $statusCode, $durationMs);
+
         unset($this->pendingRequests[$requestId]);
+    }
+
+    private function pushToProfile(string $method, string $url, int $statusCode, float $durationMs): void
+    {
+        if (!$this->client->getConfig('profiler.enabled', false)) {
+            return;
+        }
+        try {
+            $profile = app(RequestProfile::class);
+            if ($profile->isStarted()) {
+                $profile->recordHttpRequest($method, $url, $statusCode, $durationMs);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     /**
@@ -166,6 +183,8 @@ class HttpClientListener
                 $span->finish();
             }
         }
+
+        $this->pushToProfile($method, $url, 0, 0.0);
 
         unset($this->pendingRequests[$requestId]);
     }

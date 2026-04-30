@@ -162,7 +162,7 @@ class MonitoringClient
 
         // Build an extra per-call scope for context passed by the caller
         $extraScope = null;
-        if (!empty($context['tags']) || !empty($context['extra']) || !empty($context['url']) || !empty($context['status_code'])) {
+        if (!empty($context['tags']) || !empty($context['extra']) || !empty($context['url']) || !empty($context['status_code']) || !empty($context['profile'])) {
             $extraScope = new \ErrorWatch\Sdk\Scope();
 
             if (!empty($context['tags'])) {
@@ -175,6 +175,9 @@ class MonitoringClient
                 $statusCode = (int) $context['status_code'];
                 $extraScope->setTag('http.status_code', (string) $statusCode);
                 $extraScope->setExtra('status_code', $statusCode);
+            }
+            if (!empty($context['profile']) && is_array($context['profile'])) {
+                $extraScope->setProfile($context['profile']);
             }
             // Attach trace context if there is an active transaction
             if ($this->currentTransaction !== null) {

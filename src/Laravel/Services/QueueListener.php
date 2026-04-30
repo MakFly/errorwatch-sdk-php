@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Services;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
@@ -94,9 +95,25 @@ class QueueListener
                     ]
                 );
             }
+
+            $this->pushToProfile($jobInfo['queue'] ?? '', $jobInfo['name'] ?? '', 'processed', $durationMs);
         }
 
         unset($this->jobStartTimes[$jobId]);
+    }
+
+    private function pushToProfile(string $queue, string $class, string $status, float $durationMs): void
+    {
+        if (!$this->client->getConfig('profiler.enabled', false)) {
+            return;
+        }
+        try {
+            $profile = app(RequestProfile::class);
+            if ($profile->isStarted()) {
+                $profile->recordJob($queue, $class, $status, $durationMs);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     /**
@@ -142,6 +159,9 @@ class QueueListener
                 ]
             );
         }
+
+        $duration = isset($jobInfo['start_time']) ? (microtime(true) - $jobInfo['start_time']) * 1000 : 0.0;
+        $this->pushToProfile($jobInfo['queue'] ?? $event->job->getQueue(), $jobInfo['name'] ?? $event->job->resolveName(), 'failed', $duration);
 
         unset($this->jobStartTimes[$jobId]);
     }

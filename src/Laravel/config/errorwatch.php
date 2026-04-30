@@ -121,6 +121,22 @@ return [
         'excluded_channels' => [],
     ],
 
+    // Full request profile (parity with laravel-web-profiler).
+    // When enabled, attaches a snapshot of queries, cache, mail, events,
+    // views, gates, http client, logs, jobs, memory and timing to every
+    // captured exception, surfaced in the ErrorWatch issue detail UI.
+    //
+    // OFF by default — turn on per environment via ERRORWATCH_PROFILER=1.
+    'profiler' => [
+        'enabled' => env('ERRORWATCH_PROFILER', false),
+        'collectors' => [
+            'mail' => true,
+            'view' => true,
+            'gate' => true,
+            'events' => true,
+        ],
+    ],
+
     // Callbacks for modifying events before sending
     'before_send' => null,
     'before_send_transaction' => null,

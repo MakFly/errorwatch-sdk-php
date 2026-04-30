@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Services;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use ErrorWatch\Laravel\Tracing\Span;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
@@ -51,6 +52,7 @@ class CacheListener
         $this->emit('cache.get_item', $event->key, $event->storeName ?? 'default', [
             'cache.hit' => true,
         ]);
+        $this->pushToProfile('hit', $event->key, $event->storeName ?? null);
     }
 
     public function onMissed(CacheMissed $event): void
@@ -58,6 +60,7 @@ class CacheListener
         $this->emit('cache.get_item', $event->key, $event->storeName ?? 'default', [
             'cache.hit' => false,
         ]);
+        $this->pushToProfile('miss', $event->key, $event->storeName ?? null);
     }
 
     public function onWritten(KeyWritten $event): void
@@ -65,11 +68,27 @@ class CacheListener
         $this->emit('cache.put_item', $event->key, $event->storeName ?? 'default', [
             'cache.ttl_seconds' => $event->seconds ?? null,
         ]);
+        $this->pushToProfile('write', $event->key, $event->storeName ?? null);
     }
 
     public function onForgotten(KeyForgotten $event): void
     {
         $this->emit('cache.remove_item', $event->key, $event->storeName ?? 'default', []);
+        $this->pushToProfile('delete', $event->key, $event->storeName ?? null);
+    }
+
+    private function pushToProfile(string $type, string $key, ?string $store): void
+    {
+        if (!$this->client->getConfig('profiler.enabled', false)) {
+            return;
+        }
+        try {
+            $profile = app(RequestProfile::class);
+            if ($profile->isStarted()) {
+                $profile->recordCacheOp($type, $key, $store);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     /**

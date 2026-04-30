@@ -10,11 +10,16 @@ use ErrorWatch\Laravel\Commands\TestCommand;
 use ErrorWatch\Laravel\Http\Middleware\ErrorWatchMiddleware;
 use ErrorWatch\Laravel\Logging\ErrorWatchLogger;
 use ErrorWatch\Laravel\Logging\ErrorWatchExceptionHandler;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use ErrorWatch\Laravel\Services\DeprecationHandler;
 use ErrorWatch\Laravel\Services\CacheListener;
+use ErrorWatch\Laravel\Services\EventCollectorListener;
+use ErrorWatch\Laravel\Services\GateListener;
 use ErrorWatch\Laravel\Services\HttpClientListener;
+use ErrorWatch\Laravel\Services\MailListener;
 use ErrorWatch\Laravel\Services\QueryListener;
 use ErrorWatch\Laravel\Services\QueueListener;
+use ErrorWatch\Laravel\Services\ViewListener;
 use ErrorWatch\Laravel\Listeners\EventSubscriber;
 use ErrorWatch\Sdk\Client as SdkClient;
 use Illuminate\Contracts\Http\Kernel;
@@ -39,6 +44,9 @@ class ErrorWatchServiceProvider extends ServiceProvider
         $this->app->singleton(MonitoringClient::class, function ($app) {
             return new MonitoringClient($app['config']->get('errorwatch'));
         });
+
+        // Per-request profiler bag — singleton, reset by middleware on each request.
+        $this->app->singleton(RequestProfile::class, fn () => new RequestProfile());
 
         // Expose the core SDK client (delegate to MonitoringClient's internal instance)
         $this->app->singleton(SdkClient::class, function ($app) {
@@ -98,6 +106,9 @@ class ErrorWatchServiceProvider extends ServiceProvider
 
         // Register exception handler extension
         $this->registerExceptionHandler();
+
+        // Register profiler collectors (Mail, View, Gate, Event)
+        $this->registerProfilerCollectors();
 
         // Register Blade directive for session replay
         $this->registerBladeDirective();
@@ -287,6 +298,31 @@ class ErrorWatchServiceProvider extends ServiceProvider
     }
 
     /**
+     * Register profiler collectors (Mail, View, Gate, Event). Each is opt-in
+     * via `errorwatch.profiler.collectors.<name>` and only fires when
+     * `errorwatch.profiler.enabled` is true at runtime.
+     */
+    protected function registerProfilerCollectors(): void
+    {
+        if (!$this->app['config']->get('errorwatch.profiler.enabled', false)) {
+            return;
+        }
+
+        if ($this->app['config']->get('errorwatch.profiler.collectors.mail', true)) {
+            $this->app->make(MailListener::class)->register();
+        }
+        if ($this->app['config']->get('errorwatch.profiler.collectors.view', true)) {
+            $this->app->make(ViewListener::class)->register();
+        }
+        if ($this->app['config']->get('errorwatch.profiler.collectors.gate', true)) {
+            $this->app->make(GateListener::class)->register();
+        }
+        if ($this->app['config']->get('errorwatch.profiler.collectors.events', true)) {
+            $this->app->make(EventCollectorListener::class)->register();
+        }
+    }
+
+    /**
      * Register Octane reset listener to clear per-request state.
      */
     protected function registerOctaneReset(): void
@@ -305,6 +341,10 @@ class ErrorWatchServiceProvider extends ServiceProvider
                 if (method_exists($client, 'clearCapturedExceptions')) {
                     $client->clearCapturedExceptions();
                 }
+            }
+
+            if ($this->app->bound(RequestProfile::class)) {
+                $this->app->make(RequestProfile::class)->reset();
             }
         });
     }

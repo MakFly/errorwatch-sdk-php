@@ -11,7 +11,7 @@ use ErrorWatch\Sdk\Options;
 class Event
 {
     private const SDK_NAME    = 'errorwatch-php';
-    private const SDK_VERSION = '2.1.0';
+    private const SDK_VERSION = '2.2.0';
 
     private string  $eventId;
     private string  $timestamp;
@@ -31,6 +31,7 @@ class Event
     private ?array  $sdk       = null;
     private ?array  $frames    = null;
     private ?array  $fingerprint = null;
+    private ?array  $profile   = null;
 
     private function __construct()
     {
@@ -140,6 +141,12 @@ class Event
         return $this;
     }
 
+    public function setProfile(?array $profile): self
+    {
+        $this->profile = $profile;
+        return $this;
+    }
+
     // -------------------------------------------------------------------------
     // Getters
     // -------------------------------------------------------------------------
@@ -216,6 +223,10 @@ class Event
 
         if ($this->fingerprint !== null) {
             $payload['fingerprint'] = $this->fingerprint;
+        }
+
+        if ($this->profile !== null) {
+            $payload['profile'] = $this->profile;
         }
 
         return $payload;
