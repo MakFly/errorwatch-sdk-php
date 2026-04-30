@@ -6,6 +6,7 @@ namespace ErrorWatch\Laravel\Http\Middleware;
 
 use Closure;
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -35,6 +36,15 @@ class ErrorWatchMiddleware
         // Check if route is excluded
         if ($this->isExcludedRoute($request)) {
             return $next($request);
+        }
+
+        // Start per-request profile bag
+        if ($this->client->getConfig('profiler.enabled', false)) {
+            try {
+                app(RequestProfile::class)->start($request);
+            } catch (\Throwable) {
+                // never break the request
+            }
         }
 
         // Start transaction for APM

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Services;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -81,8 +82,26 @@ class QueryListener
             }
         }
 
+        // Push to per-request profile
+        $this->pushToProfile($sql, $bindings, $timeMs, $connection);
+
         // Detect N+1 queries
         $this->detectNPlusOne($sql, $connection);
+    }
+
+    private function pushToProfile(string $sql, array $bindings, float $timeMs, string $connection): void
+    {
+        if (!$this->client->getConfig('profiler.enabled', false)) {
+            return;
+        }
+        try {
+            $profile = app(RequestProfile::class);
+            if ($profile->isStarted()) {
+                $profile->recordQuery($sql, $bindings, $timeMs, $connection, $this->slowQueryThresholdMs);
+            }
+        } catch (\Throwable) {
+            // Never let profiler crash the request.
+        }
     }
 
     /**

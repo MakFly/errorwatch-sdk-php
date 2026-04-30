@@ -16,6 +16,7 @@ class Scope
     private array   $extras      = [];
     private ?array  $request     = null;
     private ?array  $fingerprint = null;
+    private ?array  $profile     = null;
     private ?Severity $level     = null;
     private BreadcrumbBag $breadcrumbBag;
 
@@ -61,6 +62,12 @@ class Scope
     public function setRequest(array $request): self
     {
         $this->request = $request;
+        return $this;
+    }
+
+    public function setProfile(?array $profile): self
+    {
+        $this->profile = $profile;
         return $this;
     }
 
@@ -161,6 +168,10 @@ class Scope
 
         if ($this->fingerprint !== null) {
             $event->setFingerprint($this->fingerprint);
+        }
+
+        if ($this->profile !== null) {
+            $event->setProfile($this->profile);
         }
 
         if ($this->level !== null) {

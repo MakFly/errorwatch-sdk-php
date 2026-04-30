@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Logging;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
@@ -27,6 +28,19 @@ class ErrorWatchExceptionHandler implements ExceptionHandler
             if ($e instanceof HttpExceptionInterface) {
                 $context['status_code'] = $e->getStatusCode();
             }
+
+            // Attach the per-request profile snapshot, if profiler is on.
+            try {
+                if (app('config')->get('errorwatch.profiler.enabled', false) && app()->bound(RequestProfile::class)) {
+                    $profile = app(RequestProfile::class);
+                    if ($profile->isStarted()) {
+                        $context['profile'] = $profile->toArray($e, $context['status_code'] ?? null);
+                    }
+                }
+            } catch (\Throwable) {
+                // never let profiler crash the report path
+            }
+
             $this->logger->handleException($e, $context);
         }
 

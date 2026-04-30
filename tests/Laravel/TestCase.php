@@ -89,6 +89,15 @@ abstract class TestCase extends BaseTestCase
                 'level' => 'debug',
                 'excluded_channels' => [],
             ],
+            'profiler' => [
+                'enabled' => false,
+                'collectors' => [
+                    'mail' => true,
+                    'view' => true,
+                    'gate' => true,
+                    'events' => true,
+                ],
+            ],
         ]);
 
         $this->client = $app->make(MonitoringClient::class);

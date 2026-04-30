@@ -67,7 +67,7 @@ class ClientTest extends TestCase
         $this->assertSame('error', $payload['level']);
         $this->assertArrayHasKey('sdk', $payload);
         $this->assertSame('errorwatch-php', $payload['sdk']['name']);
-        $this->assertSame('2.1.0', $payload['sdk']['version']);
+        $this->assertSame('2.2.0', $payload['sdk']['version']);
     }
 
     // -------------------------------------------------------------------------
