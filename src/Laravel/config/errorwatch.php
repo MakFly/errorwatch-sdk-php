@@ -105,7 +105,7 @@ return [
     // Laravel logging integration (replaces Monolog handler)
     'logging' => [
         'enabled' => env('ERRORWATCH_LOGGING_ENABLED', true),
-        'level' => env('ERRORWATCH_LOG_LEVEL', 'error'),
+        'level' => env('ERRORWATCH_LOG_LEVEL', 'debug'),
         'excluded_channels' => ['errorwatch'],
     ],
 

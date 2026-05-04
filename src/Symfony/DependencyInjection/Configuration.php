@@ -146,7 +146,7 @@ final class Configuration implements ConfigurationInterface
                         ->booleanNode('enabled')->defaultTrue()->info('Enable automatic Monolog forwarding to ErrorWatch')->end()
                         ->enumNode('level')
                             ->values(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'])
-                            ->defaultValue('warning')
+                            ->defaultValue('debug')
                         ->end()
                         ->arrayNode('excluded_channels')
                             ->scalarPrototype()->end()
