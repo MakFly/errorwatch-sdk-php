@@ -70,6 +70,24 @@ class ErrorWatchLogger
             // never let profiler attach crash the log path
         }
 
+        // Capture a structured stacktrace so log/warning events surface
+        // file:line + call site in the dashboard, just like exceptions.
+        // We also propagate a "throwable origin" if the deprecation message
+        // ends with "in <file> on line <N>" (PHP error formatter pattern).
+        try {
+            $frames = $this->captureBacktraceFrames();
+            if (!empty($frames)) {
+                $formattedContext['frames'] = $frames;
+            }
+            [$file, $line] = $this->extractFileLineFromMessage($message);
+            if ($file !== null) {
+                $formattedContext['extra']['origin_file'] = $file;
+                $formattedContext['extra']['origin_line'] = $line;
+            }
+        } catch (\Throwable) {
+            // never let stacktrace capture crash the log path
+        }
+
         $this->client->captureMessage($message, $level, $formattedContext);
 
         if ($this->client->getConfig('logs.enabled', true)) {
@@ -116,5 +134,66 @@ class ErrorWatchLogger
         ];
 
         $this->client->getTransport()->sendLog($logEntry);
+    }
+
+    /**
+     * Capture a structured backtrace, skipping SDK + Laravel logging frames.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function captureBacktraceFrames(int $maxFrames = 30): array
+    {
+        $raw = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, $maxFrames + 10);
+        $frames = [];
+
+        foreach ($raw as $f) {
+            $file = $f['file'] ?? null;
+            if ($file === null) {
+                continue;
+            }
+            // Skip frames originating from the SDK itself
+            if (str_contains($file, 'vendor/errorwatch/sdk-php/')) {
+                continue;
+            }
+            // Skip Laravel logging plumbing frames
+            if (preg_match('#vendor/laravel/framework/src/Illuminate/(Log|Events)/#', $file)) {
+                continue;
+            }
+
+            $func = $f['function'] ?? null;
+            if (isset($f['class'])) {
+                $func = $f['class'] . ($f['type'] ?? '::') . $func;
+            }
+
+            $frames[] = [
+                'filename' => $file,
+                'function' => $func,
+                'lineno' => $f['line'] ?? null,
+                'in_app' => !str_contains($file, 'vendor/'),
+            ];
+
+            if (count($frames) >= $maxFrames) {
+                break;
+            }
+        }
+
+        // Sentry-style frames are oldest -> newest; debug_backtrace is the
+        // opposite, so reverse to match what the dashboard expects.
+        return array_reverse($frames);
+    }
+
+    /**
+     * PHP error/deprecation messages end with "in <file> on line <N>".
+     * Extract that pair so the dashboard can highlight the call site even
+     * when the captured backtrace is shallow.
+     *
+     * @return array{0: string|null, 1: int|null}
+     */
+    protected function extractFileLineFromMessage(string $message): array
+    {
+        if (preg_match('# in (?<file>[^\s]+\.\w+) on line (?<line>\d+)\b#', $message, $m)) {
+            return [$m['file'], (int) $m['line']];
+        }
+        return [null, null];
     }
 }

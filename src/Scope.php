@@ -17,6 +17,7 @@ class Scope
     private ?array  $request     = null;
     private ?array  $fingerprint = null;
     private ?array  $profile     = null;
+    private ?array  $frames      = null;
     private ?Severity $level     = null;
     private BreadcrumbBag $breadcrumbBag;
 
@@ -68,6 +69,12 @@ class Scope
     public function setProfile(?array $profile): self
     {
         $this->profile = $profile;
+        return $this;
+    }
+
+    public function setFrames(?array $frames): self
+    {
+        $this->frames = $frames;
         return $this;
     }
 
@@ -172,6 +179,10 @@ class Scope
 
         if ($this->profile !== null) {
             $event->setProfile($this->profile);
+        }
+
+        if ($this->frames !== null && method_exists($event, 'setFrames')) {
+            $event->setFrames($this->frames);
         }
 
         if ($this->level !== null) {

@@ -11,7 +11,7 @@ use ErrorWatch\Sdk\Options;
 class Event
 {
     private const SDK_NAME    = 'errorwatch-php';
-    private const SDK_VERSION = '2.5.2';
+    private const SDK_VERSION = '2.5.3';
 
     private string  $eventId;
     private string  $timestamp;
@@ -144,6 +144,12 @@ class Event
     public function setProfile(?array $profile): self
     {
         $this->profile = $profile;
+        return $this;
+    }
+
+    public function setFrames(?array $frames): self
+    {
+        $this->frames = $frames;
         return $this;
     }
 
