@@ -174,7 +174,7 @@ class MonitoringClient
             if (!empty($context['status_code'])) {
                 $statusCode = (int) $context['status_code'];
                 $extraScope->setTag('http.status_code', (string) $statusCode);
-                $extraScope->setExtra('status_code', $statusCode);
+                $extraScope->setStatusCode($statusCode);
             }
             if (!empty($context['profile']) && is_array($context['profile'])) {
                 $extraScope->setProfile($context['profile']);
@@ -298,6 +298,22 @@ class MonitoringClient
 
         // Sync to core scope
         $this->sdkClient->getScope()->setUser($user);
+    }
+
+    /**
+     * Snapshot the current HTTP request into the SDK scope so every event
+     * captured during this request lifecycle carries `request.url` /
+     * `request.method` / status_code at the payload top-level.
+     *
+     * @param array{url?: string, method?: string, headers?: array<string,mixed>, query_string?: string} $request
+     */
+    public function setRequestContext(array $request, ?int $statusCode = null): void
+    {
+        $this->sdkClient->getScope()->setRequest($request);
+        if ($statusCode !== null) {
+            $this->sdkClient->getScope()->setStatusCode($statusCode);
+            $this->sdkClient->getScope()->setTag('http.status_code', (string) $statusCode);
+        }
     }
 
     /**

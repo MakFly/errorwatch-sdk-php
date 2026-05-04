@@ -18,6 +18,7 @@ class Scope
     private ?array  $fingerprint = null;
     private ?array  $profile     = null;
     private ?array  $frames      = null;
+    private ?int    $statusCode  = null;
     private ?Severity $level     = null;
     private BreadcrumbBag $breadcrumbBag;
 
@@ -75,6 +76,12 @@ class Scope
     public function setFrames(?array $frames): self
     {
         $this->frames = $frames;
+        return $this;
+    }
+
+    public function setStatusCode(?int $statusCode): self
+    {
+        $this->statusCode = $statusCode;
         return $this;
     }
 
@@ -183,6 +190,10 @@ class Scope
 
         if ($this->frames !== null && method_exists($event, 'setFrames')) {
             $event->setFrames($this->frames);
+        }
+
+        if ($this->statusCode !== null && method_exists($event, 'setStatusCode')) {
+            $event->setStatusCode($this->statusCode);
         }
 
         if ($this->level !== null) {

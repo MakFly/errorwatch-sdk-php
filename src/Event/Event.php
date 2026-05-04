@@ -11,7 +11,7 @@ use ErrorWatch\Sdk\Options;
 class Event
 {
     private const SDK_NAME    = 'errorwatch-php';
-    private const SDK_VERSION = '2.5.3';
+    private const SDK_VERSION = '2.5.4';
 
     private string  $eventId;
     private string  $timestamp;
@@ -32,6 +32,7 @@ class Event
     private ?array  $frames    = null;
     private ?array  $fingerprint = null;
     private ?array  $profile   = null;
+    private ?int    $statusCode = null;
 
     private function __construct()
     {
@@ -153,6 +154,12 @@ class Event
         return $this;
     }
 
+    public function setStatusCode(?int $statusCode): self
+    {
+        $this->statusCode = $statusCode;
+        return $this;
+    }
+
     // -------------------------------------------------------------------------
     // Getters
     // -------------------------------------------------------------------------
@@ -233,6 +240,10 @@ class Event
 
         if ($this->profile !== null) {
             $payload['profile'] = $this->profile;
+        }
+
+        if ($this->statusCode !== null) {
+            $payload['status_code'] = $this->statusCode;
         }
 
         return $payload;

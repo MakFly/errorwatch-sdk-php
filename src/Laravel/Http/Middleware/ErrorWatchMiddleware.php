@@ -38,6 +38,19 @@ class ErrorWatchMiddleware
             return $next($request);
         }
 
+        // Snapshot request into the SDK scope so every event captured during
+        // this lifecycle carries request.url / request.method at the payload
+        // top-level (and the dashboard "HTTP" column shows the real status).
+        try {
+            $this->client->setRequestContext([
+                'url' => $request->fullUrl(),
+                'method' => $request->method(),
+                'query_string' => (string) ($request->getQueryString() ?? ''),
+            ]);
+        } catch (\Throwable) {
+            // never break the request
+        }
+
         // Start per-request profile bag
         if ($this->client->getConfig('profiler.enabled', false)) {
             try {
@@ -87,6 +100,18 @@ class ErrorWatchMiddleware
             }
 
             throw $e;
+        }
+
+        // Bubble the response status back into the SDK scope so events
+        // emitted during terminate() (or async tail) tag the correct code.
+        try {
+            $this->client->setRequestContext([
+                'url' => $request->fullUrl(),
+                'method' => $request->method(),
+                'query_string' => (string) ($request->getQueryString() ?? ''),
+            ], $response->getStatusCode());
+        } catch (\Throwable) {
+            // never break the response
         }
 
         return $response;
