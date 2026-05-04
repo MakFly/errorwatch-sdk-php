@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Logging;
 
 use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Throwable;
 
 class ErrorWatchLogger
@@ -50,6 +51,23 @@ class ErrorWatchLogger
 
         if (!empty($context)) {
             $formattedContext['extra']['laravel_log_context'] = $context;
+        }
+
+        // Auto-attach the per-request profile when the profiler is on and a
+        // RequestProfile bag has been started for the current HTTP request.
+        // This makes Logger::warning / Logger::error events surface the same
+        // Full Debug panel as captureException does.
+        try {
+            if (function_exists('app')
+                && app('config')->get('errorwatch.profiler.enabled', true)
+                && app()->bound(RequestProfile::class)) {
+                $profile = app(RequestProfile::class);
+                if ($profile->isStarted()) {
+                    $formattedContext['profile'] = $profile->toArray();
+                }
+            }
+        } catch (\Throwable) {
+            // never let profiler attach crash the log path
         }
 
         $this->client->captureMessage($message, $level, $formattedContext);

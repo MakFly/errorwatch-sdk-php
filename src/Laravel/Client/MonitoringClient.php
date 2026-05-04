@@ -205,7 +205,7 @@ class MonitoringClient
 
         // Build a per-call scope for caller-supplied context
         $extraScope = null;
-        if (!empty($context['tags']) || !empty($context['extra'])) {
+        if (!empty($context['tags']) || !empty($context['extra']) || !empty($context['profile'])) {
             $extraScope = new \ErrorWatch\Sdk\Scope();
 
             if (!empty($context['tags'])) {
@@ -213,6 +213,9 @@ class MonitoringClient
             }
             if (!empty($context['extra'])) {
                 $extraScope->setExtras($context['extra']);
+            }
+            if (!empty($context['profile']) && is_array($context['profile'])) {
+                $extraScope->setProfile($context['profile']);
             }
         }
 
