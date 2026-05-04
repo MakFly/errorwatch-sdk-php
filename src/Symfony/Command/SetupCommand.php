@@ -113,6 +113,7 @@ ENV;
         $io->text('<fg=yellow>Next steps:</>');
         $io->listing([
             'Set <comment>ERRORWATCH_ENDPOINT</comment> and <comment>ERRORWATCH_API_KEY</comment> in <comment>.env.local</comment>',
+            'The full request profiler is ON by default — no extra config needed',
             'Run <comment>php bin/console debug:config error_watch</comment> to verify',
             'Clear cache: <comment>php bin/console cache:clear</comment>',
         ]);
