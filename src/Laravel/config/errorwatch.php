@@ -126,9 +126,9 @@ return [
     // views, gates, http client, logs, jobs, memory and timing to every
     // captured exception, surfaced in the ErrorWatch issue detail UI.
     //
-    // OFF by default — turn on per environment via ERRORWATCH_PROFILER=1.
+    // ON by default — set ERRORWATCH_PROFILER=0 to disable.
     'profiler' => [
-        'enabled' => env('ERRORWATCH_PROFILER', false),
+        'enabled' => env('ERRORWATCH_PROFILER', true),
         'collectors' => [
             'mail' => true,
             'view' => true,

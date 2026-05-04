@@ -48,7 +48,10 @@ class InstallCommand extends Command
         $this->line('   ERRORWATCH_ENDPOINT=https://api.errorwatch.io');
         $this->line('   ERRORWATCH_API_KEY=your-api-key-here');
         $this->line('');
-        $this->line('2. Optionally configure additional settings in config/errorwatch.php');
+        $this->line('   That\'s it. The full request profiler is enabled by default.');
+        $this->line('   Set ERRORWATCH_PROFILER=0 to disable it if you don\'t need it.');
+        $this->line('');
+        $this->line('2. Optionally fine-tune anything in config/errorwatch.php');
         $this->line('');
         $this->line('3. Test the installation:');
         $this->line('   php artisan errorwatch:test');
