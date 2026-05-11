@@ -25,9 +25,10 @@ final class ExceptionSubscriberTest extends TestCase
     {
         return new Client(
             new Options([
-                'endpoint' => 'http://localhost',
-                'api_key'  => 'test-key',
-                'enabled'  => true,
+                'endpoint'       => 'http://localhost',
+                'api_key'        => 'test-key',
+                'enabled'        => true,
+                'transport_mode' => 'sync',
             ]),
             $transport,
         );

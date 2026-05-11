@@ -73,8 +73,13 @@ final class ErrorMonitoringHandlerTest extends TestCase
         $handler->handle($record);
     }
 
-    public function testExtractsExceptionMetadataFromContext(): void
+    public function testSkipsRecordCarryingThrowableToAvoidDuplicate(): void
     {
+        // The Monolog handler intentionally skips records that carry a
+        // Throwable in their context — those are already captured by the
+        // ExceptionSubscriber with the canonical v2 fingerprint + frames.
+        // Re-emitting from here would produce a duplicate error_group
+        // with a mismatched fingerprint.
         $handler = new ErrorMonitoringHandler(
             client: $this->client,
             enabled: true,
@@ -82,24 +87,14 @@ final class ErrorMonitoringHandlerTest extends TestCase
             release: null
         );
 
-        $exception = new \RuntimeException('boom');
-
-        $this->client
-            ->expects($this->once())
-            ->method('sendEventAsync')
-            ->with($this->callback(static function (array $payload): bool {
-                return 'boom' === $payload['message']
-                    && is_string($payload['file'])
-                    && is_int($payload['line'])
-                    && is_string($payload['stack']);
-            }));
+        $this->client->expects($this->never())->method('sendEventAsync');
 
         $record = new LogRecord(
             datetime: new \DateTimeImmutable(),
             channel: 'app',
             level: Level::Error,
             message: 'caught error',
-            context: ['exception' => $exception],
+            context: ['exception' => new \RuntimeException('boom')],
             extra: []
         );
 

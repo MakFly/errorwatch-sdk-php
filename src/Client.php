@@ -36,6 +36,9 @@ class Client
                 $options->getEndpoint(),
                 $options->getApiKey(),
                 $options->getTimeout(),
+                null,
+                null,
+                new Transport\RequestBudget($options->getRequestBudgetMs()),
             );
         }
     }
@@ -193,9 +196,19 @@ class Client
                 }
             }
 
-            $sent = $this->transport->send($payload);
+            $eventId = $payload['event_id'] ?? $event->getEventId();
 
-            return $sent ? ($payload['event_id'] ?? $event->getEventId()) : null;
+            // Default delivery is non-blocking: a fire-and-forget Guzzle
+            // promise is scheduled and drained at PHP shutdown / kernel
+            // terminate. Sync mode remains available for queue workers,
+            // console commands, and tests that need confirmation.
+            if ($this->options->getTransportMode() === 'sync') {
+                $sent = $this->transport->send($payload);
+                return $sent ? $eventId : null;
+            }
+
+            $this->transport->sendAsync($payload);
+            return $eventId;
         } catch (\Throwable) {
             return null;
         }

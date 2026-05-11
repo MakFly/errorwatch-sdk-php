@@ -49,9 +49,10 @@ class MonitoringClient
             $config['endpoint'] ?? '',
             $config['api_key'] ?? '',
             $config['transport']['timeout'] ?? 5,
-            $config['transport']['circuit_breaker_threshold'] ?? 5,
-            $config['transport']['circuit_breaker_cooldown'] ?? 60,
+            $config['transport']['circuit_breaker_threshold'] ?? 3,
+            $config['transport']['circuit_breaker_cooldown'] ?? 30,
             $config['transport']['retry_attempts'] ?? 2,
+            $config['transport']['request_budget_ms'] ?? 50,
         );
 
         $this->breadcrumbs = new BreadcrumbManager(
@@ -65,8 +66,47 @@ class MonitoringClient
         // resolves to $this->transport. This ensures that when tests replace
         // $this->transport via reflection, the core SDK uses the new transport.
         $sdkOptions = $this->buildSdkOptions($config);
-        $delegate = new TransportDelegate(fn () => $this->transport);
+        $resolvedMode = $this->resolveTransportMode();
+        $config['transport']['mode'] = $resolvedMode;
+        $this->config = $config;
+
+        $resolver = fn () => $this->transport;
+        $delegate = $resolvedMode === 'queue'
+            ? new \ErrorWatch\Laravel\Transport\QueueDispatchingTransport(
+                $resolver,
+                $config['transport']['queue_connection'] ?? null,
+                $config['transport']['queue_name'] ?? 'default',
+            )
+            : new TransportDelegate($resolver);
         $this->sdkClient = new SdkClient($sdkOptions, $delegate);
+    }
+
+    /**
+     * Resolve `transport.mode = auto` to a concrete strategy:
+     * - 'queue' if Laravel's default queue connection is NOT 'sync' and
+     *   the dispatch() helper is available (real queue worker available).
+     * - 'async' otherwise (Guzzle fire-and-forget, drained on terminate).
+     *
+     * Explicit modes (sync / async / queue) are returned untouched.
+     */
+    private function resolveTransportMode(): string
+    {
+        $mode = strtolower((string) ($this->config['transport']['mode'] ?? 'async'));
+        if ($mode !== 'auto') {
+            return in_array($mode, ['sync', 'async', 'queue'], true) ? $mode : 'async';
+        }
+
+        try {
+            if (function_exists('config') && function_exists('dispatch')) {
+                $default = \config('queue.default');
+                if (is_string($default) && $default !== '' && $default !== 'sync' && $default !== 'null') {
+                    return 'queue';
+                }
+            }
+        } catch (\Throwable) {
+            // fall through to async
+        }
+        return 'async';
     }
 
     // -------------------------------------------------------------------------
@@ -243,7 +283,11 @@ class MonitoringClient
             'user' => $this->userContext->getUser(),
         ], $event);
 
-        $this->transport->send($event);
+        if (($this->config['transport']['mode'] ?? 'async') === 'sync') {
+            $this->transport->send($event);
+        } else {
+            $this->transport->sendAsync($event);
+        }
 
         return $event['event_id'] ?? null;
     }
@@ -368,9 +412,16 @@ class MonitoringClient
         $this->currentTransaction->finish();
         $transactionData = $this->currentTransaction->toArray();
 
-        // Send transaction data
+        // Send transaction data (fire-and-forget by default — middleware
+        // terminate runs after fastcgi_finish_request so the client has
+        // already received the response, but the host process should not
+        // wait on APM I/O either way).
         if ($this->shouldSample($this->config['apm']['sample_rate'] ?? 1.0)) {
-            $this->transport->sendTransaction($transactionData, $this->config['environment'] ?? 'production');
+            if (($this->config['transport']['mode'] ?? 'async') === 'sync') {
+                $this->transport->sendTransaction($transactionData, $this->config['environment'] ?? 'production');
+            } else {
+                $this->transport->sendTransactionAsync($transactionData, $this->config['environment'] ?? 'production');
+            }
         }
 
         $this->currentTransaction = null;
@@ -434,6 +485,8 @@ class MonitoringClient
             'sample_rate'    => $config['sample_rate'] ?? 1.0,
             'max_breadcrumbs' => $config['breadcrumbs']['max_count'] ?? 100,
             'timeout'        => $config['transport']['timeout'] ?? 5,
+            'transport_mode' => $config['transport']['mode'] ?? 'async',
+            'request_budget_ms' => $config['transport']['request_budget_ms'] ?? 50,
         ], array_filter([
             'endpoint'    => $config['endpoint'] ?? null,
             'api_key'     => $config['api_key'] ?? null,

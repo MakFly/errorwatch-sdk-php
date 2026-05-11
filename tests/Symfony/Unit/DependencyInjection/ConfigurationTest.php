@@ -69,7 +69,7 @@ final class ConfigurationTest extends TestCase
 
         // Monolog defaults
         $this->assertTrue($config['monolog']['enabled']);
-        $this->assertSame('warning', $config['monolog']['level']);
+        $this->assertSame('debug', $config['monolog']['level']);
         $this->assertSame(['event', 'doctrine', 'http_client'], $config['monolog']['excluded_channels']);
         $this->assertTrue($config['monolog']['capture_context']);
         $this->assertTrue($config['monolog']['capture_extra']);

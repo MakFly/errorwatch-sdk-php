@@ -18,6 +18,8 @@ class Options
     private readonly mixed $beforeSend;
     private readonly bool    $enabled;
     private readonly int     $timeout;
+    private readonly string  $transportMode;
+    private readonly int     $requestBudgetMs;
 
     public function __construct(array $config)
     {
@@ -41,6 +43,12 @@ class Options
             : null;
         $this->enabled        = (bool) ($config['enabled'] ?? true);
         $this->timeout        = (int)  ($config['timeout'] ?? 5);
+
+        $mode = strtolower((string) ($config['transport_mode'] ?? $config['transport']['mode'] ?? 'async'));
+        $this->transportMode = in_array($mode, ['sync', 'async', 'queue', 'auto'], true) ? $mode : 'async';
+        $this->requestBudgetMs = (int) ($config['request_budget_ms']
+            ?? $config['transport']['request_budget_ms']
+            ?? 50);
     }
 
     public function getEndpoint(): string
@@ -96,5 +104,24 @@ class Options
     public function getTimeout(): int
     {
         return $this->timeout;
+    }
+
+    /**
+     * Transport delivery mode: sync, async (fire-and-forget Guzzle promise),
+     * queue (dispatch a job — Laravel/Symfony Messenger), or auto (host
+     * integration picks the best available).
+     */
+    public function getTransportMode(): string
+    {
+        return $this->transportMode;
+    }
+
+    /**
+     * Wall-clock budget in milliseconds for all transport I/O during a
+     * single request lifecycle. Past this point, events are dropped.
+     */
+    public function getRequestBudgetMs(): int
+    {
+        return $this->requestBudgetMs;
     }
 }

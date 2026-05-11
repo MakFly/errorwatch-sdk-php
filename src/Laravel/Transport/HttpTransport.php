@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace ErrorWatch\Laravel\Transport;
 
+use ErrorWatch\Sdk\Transport\RequestBudget;
 use ErrorWatch\Sdk\Transport\TransportInterface;
+use ErrorWatch\Sdk\Transport\TransportMetrics;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Request;
@@ -11,6 +13,9 @@ use GuzzleHttp\Promise\PromiseInterface;
 
 class HttpTransport implements TransportInterface
 {
+    /** Hard cap on connect time on the request hot path. */
+    private const HOT_PATH_CONNECT_TIMEOUT_S = 0.3;
+
     protected Client         $client;
     protected string         $endpoint;
     protected string         $apiKey;
@@ -22,14 +27,19 @@ class HttpTransport implements TransportInterface
     private array            $pendingPromises  = [];
     private ?int             $rateLimitResetAt = null;
     private int              $rateLimitRemaining = PHP_INT_MAX;
+    private RequestBudget    $budget;
+    private TransportMetrics $metrics;
 
     public function __construct(
         string $endpoint,
         string $apiKey,
         int    $timeout           = 5,
-        int    $failureThreshold  = 5,
-        int    $cooldownSeconds   = 60,
+        int    $failureThreshold  = 3,
+        int    $cooldownSeconds   = 30,
         int    $maxRetries        = 2,
+        int    $requestBudgetMs   = 50,
+        ?RequestBudget $budget    = null,
+        ?TransportMetrics $metrics = null,
     ) {
         $this->endpoint = rtrim($endpoint, '/');
         $this->apiKey   = $apiKey;
@@ -37,12 +47,14 @@ class HttpTransport implements TransportInterface
 
         $this->client = new Client([
             'timeout'         => $timeout,
-            'connect_timeout' => 3,
+            'connect_timeout' => self::HOT_PATH_CONNECT_TIMEOUT_S,
             'http_errors'     => false, // Don't throw on HTTP errors
         ]);
 
         $this->circuitBreaker = new CircuitBreaker($failureThreshold, $cooldownSeconds);
         $this->retryHandler   = new RetryHandler($maxRetries);
+        $this->budget         = $budget  ?? new RequestBudget($requestBudgetMs);
+        $this->metrics        = $metrics ?? new TransportMetrics();
 
         register_shutdown_function([$this, 'flushAsync']);
     }
@@ -53,23 +65,37 @@ class HttpTransport implements TransportInterface
      */
     public function send(array $payload): bool
     {
+        if (!$this->budget->withinBudget()) {
+            $this->metrics->recordDrop('budget_exceeded');
+            return false;
+        }
+
         if (!$this->circuitBreaker->allowRequest()) {
+            $this->metrics->recordDrop('circuit_open');
             error_log('[ErrorWatch] Circuit breaker OPEN — skipping event send.');
             return false;
         }
 
         if ($this->rateLimitRemaining <= 0 && $this->rateLimitResetAt !== null && time() < $this->rateLimitResetAt) {
+            $this->metrics->recordDrop('rate_limited');
             error_log('[ErrorWatch] Rate limit active — skipping event send.');
             return false;
         }
 
         $attempt = 0;
+        $sendStartedAt = microtime(true);
 
         do {
             if ($attempt > 0) {
+                // Honour the per-request budget: never sleep past it.
                 $retryAfter = isset($retryAfterSeconds) ? $retryAfterSeconds : null;
                 $delayMs    = $this->retryHandler->getDelay($attempt - 1, $retryAfter);
-                usleep($delayMs * 1000);
+                $remaining  = (int) $this->budget->remaining();
+                if ($remaining <= 0) {
+                    $this->metrics->recordDrop('budget_exceeded');
+                    return false;
+                }
+                usleep(min($delayMs, $remaining) * 1000);
             }
 
             $retryAfterSeconds = null;
@@ -99,8 +125,11 @@ class HttpTransport implements TransportInterface
                     $retryAfterSeconds = (int) $retryAfterHeader;
                 }
 
+                $this->budget->consume((microtime(true) - $sendStartedAt) * 1000.0);
+
                 if ($statusCode >= 200 && $statusCode < 300) {
                     $this->circuitBreaker->recordSuccess();
+                    $this->metrics->recordSend((microtime(true) - $sendStartedAt) * 1000.0, true);
                     return true;
                 }
 
@@ -131,6 +160,8 @@ class HttpTransport implements TransportInterface
             } catch (GuzzleException $e) {
                 // Connection-level failure counts against the circuit breaker
                 $this->circuitBreaker->recordFailure();
+                $this->budget->consume((microtime(true) - $sendStartedAt) * 1000.0);
+                $this->metrics->recordSend((microtime(true) - $sendStartedAt) * 1000.0, false, $e->getMessage());
                 error_log('[ErrorWatch] Failed to send event: ' . $e->getMessage());
                 return false;
             }
@@ -144,24 +175,74 @@ class HttpTransport implements TransportInterface
      */
     public function sendAsync(array $payload): void
     {
+        $this->dispatchAsync($this->getEventUrl(), $payload);
+    }
+
+    /**
+     * Fire-and-forget transaction send (APM).
+     */
+    public function sendTransactionAsync(array $transaction, ?string $env = null): void
+    {
+        $this->dispatchAsync($this->getTransactionUrl(), [
+            'transaction' => $transaction,
+            'env'         => $env,
+        ]);
+    }
+
+    /**
+     * Fire-and-forget log send.
+     */
+    public function sendLogAsync(array $logEntry): void
+    {
+        $this->dispatchAsync($this->getLogsUrl(), $logEntry);
+    }
+
+    private function dispatchAsync(string $url, array $payload): void
+    {
+        if (!$this->budget->withinBudget()) {
+            $this->metrics->recordDrop('budget_exceeded');
+            return;
+        }
+        if (!$this->circuitBreaker->allowRequest()) {
+            $this->metrics->recordDrop('circuit_open');
+            return;
+        }
+
         try {
             $request = new Request(
                 'POST',
-                $this->getEventUrl(),
+                $url,
                 $this->getHeaders(),
-                json_encode($payload)
+                json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'
             );
 
-            $promise = $this->client->sendAsync($request)->then(
-                null,
-                function (\Exception $e): void {
+            $promise = $this->client->sendAsync($request, [
+                'timeout'         => $this->timeout,
+                'connect_timeout' => self::HOT_PATH_CONNECT_TIMEOUT_S,
+            ])->then(
+                function ($response): void {
+                    if (method_exists($response, 'getStatusCode')) {
+                        $status = $response->getStatusCode();
+                        if ($status >= 200 && $status < 300) {
+                            $this->circuitBreaker->recordSuccess();
+                        } elseif ($status >= 500) {
+                            $this->circuitBreaker->recordFailure();
+                            $this->metrics->recordSend(0.0, false, "http_{$status}");
+                        }
+                    }
+                },
+                function (\Throwable $e): void {
+                    $this->circuitBreaker->recordFailure();
+                    $this->metrics->recordSend(0.0, false, $e->getMessage());
                     error_log('[ErrorWatch] Async send failed: ' . $e->getMessage());
                 }
             );
 
             $this->pendingPromises[] = $promise;
+            $this->metrics->recordAsync();
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            $this->metrics->recordDrop('async_setup_failed');
             error_log('[ErrorWatch] Failed to create async request: ' . $e->getMessage());
         }
     }
@@ -217,7 +298,12 @@ class HttpTransport implements TransportInterface
      */
     public function sendLog(array $logEntry): bool
     {
+        if (!$this->budget->withinBudget()) {
+            $this->metrics->recordDrop('budget_exceeded');
+            return false;
+        }
         if (!$this->circuitBreaker->allowRequest()) {
+            $this->metrics->recordDrop('circuit_open');
             error_log('[ErrorWatch] Circuit breaker OPEN — skipping log send.');
             return false;
         }
@@ -251,7 +337,12 @@ class HttpTransport implements TransportInterface
      */
     public function sendTransaction(array $transaction, ?string $env = null): bool
     {
+        if (!$this->budget->withinBudget()) {
+            $this->metrics->recordDrop('budget_exceeded');
+            return false;
+        }
         if (!$this->circuitBreaker->allowRequest()) {
+            $this->metrics->recordDrop('circuit_open');
             error_log('[ErrorWatch] Circuit breaker OPEN — skipping transaction send.');
             return false;
         }
@@ -310,6 +401,23 @@ class HttpTransport implements TransportInterface
         $this->pendingEvents      = [];
         $this->rateLimitRemaining = PHP_INT_MAX;
         $this->rateLimitResetAt   = null;
+        $this->budget->reset();
+    }
+
+    /**
+     * Expose runtime metrics for observability / debug commands.
+     */
+    public function getMetrics(): TransportMetrics
+    {
+        return $this->metrics;
+    }
+
+    /**
+     * Expose the per-request budget instance (read-only inspection).
+     */
+    public function getBudget(): RequestBudget
+    {
+        return $this->budget;
     }
 
     /**

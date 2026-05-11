@@ -67,6 +67,12 @@ services:
             $release: '%error_watch.release%'
             $logger: '@ErrorWatch\Symfony\Service\ErrorWatchLogger'
 
+    ErrorWatch\Symfony\EventSubscriber\KernelTerminateSubscriber:
+        arguments:
+            $client: '@ErrorWatch\Symfony\Http\MonitoringClient'
+        tags:
+            - { name: kernel.event_subscriber }
+
     ErrorWatch\Symfony\EventSubscriber\ExceptionSubscriber:
         arguments:
             $client: '@ErrorWatch\Sdk\Client'

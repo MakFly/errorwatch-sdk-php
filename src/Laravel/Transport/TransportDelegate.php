@@ -31,4 +31,9 @@ final class TransportDelegate implements TransportInterface
     {
         return ($this->resolver)()->send($payload);
     }
+
+    public function sendAsync(array $payload): void
+    {
+        ($this->resolver)()->sendAsync($payload);
+    }
 }

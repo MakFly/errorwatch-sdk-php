@@ -149,7 +149,17 @@ class ErrorWatchMiddleware
             }
         }
 
-        // Flush any pending async events before the process ends
+        // Let nginx/PHP-FPM release the client connection before we drain
+        // async promises. The user already has the response; the SDK can
+        // now spend its remaining time finishing transport I/O without
+        // any visible latency.
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        } elseif (function_exists('litespeed_finish_request')) {
+            @litespeed_finish_request();
+        }
+
+        // Flush any pending async events before the process ends.
         $this->client->getTransport()->flushAsync();
     }
 

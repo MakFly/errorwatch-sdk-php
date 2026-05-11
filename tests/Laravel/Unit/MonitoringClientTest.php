@@ -110,14 +110,13 @@ class MonitoringClientTest extends TestCase
     {
         // Mock transport on the existing app client to avoid handler leak
         $mockTransport = Mockery::mock(HttpTransport::class);
-        $mockTransport->shouldReceive('send')
+        $mockTransport->shouldReceive('sendAsync')
             ->once()
             ->with(Mockery::on(function ($payload) {
                 return isset($payload['message'])
                     && $payload['message'] === 'Test message'
                     && $payload['level'] === 'info';
-            }))
-            ->andReturn(true);
+            }));
 
         $client = app(MonitoringClient::class);
 
@@ -136,7 +135,7 @@ class MonitoringClientTest extends TestCase
     {
         // Mock transport on the existing app client to avoid handler leak
         $mockTransport = Mockery::mock(HttpTransport::class);
-        $mockTransport->shouldReceive('send')
+        $mockTransport->shouldReceive('sendAsync')
             ->once()
             ->with(Mockery::on(function ($payload) {
                 // Core SDK v2 payload: exception.type holds the class, message holds getMessage()
@@ -145,8 +144,7 @@ class MonitoringClientTest extends TestCase
                     && isset($payload['message'])
                     && str_contains($payload['message'], 'Test exception')
                     && $payload['level'] === 'error';
-            }))
-            ->andReturn(true);
+            }));
 
         $client = app(MonitoringClient::class);
 

@@ -40,4 +40,10 @@ interface MonitoringClientInterface
      * @param array<string, mixed> $payload
      */
     public function sendCronCheckin(array $payload): void;
+
+    /**
+     * Drain all pending async responses. Called by KernelTerminateSubscriber
+     * after the response has been sent. MUST NOT throw.
+     */
+    public function flushAsync(): void;
 }

@@ -34,7 +34,7 @@ class MonitoringClientDeduplicationTest extends TestCase
     #[Test]
     public function it_returns_an_event_id_on_first_capture(): void
     {
-        $this->mockTransport->shouldReceive('send')->once()->andReturn(true);
+        $this->mockTransport->shouldReceive('sendAsync')->once();
 
         $exception = new RuntimeException('First capture');
 
@@ -49,7 +49,7 @@ class MonitoringClientDeduplicationTest extends TestCase
     public function it_returns_null_on_second_capture_of_same_exception_instance(): void
     {
         // First call: transport::send should be called once
-        $this->mockTransport->shouldReceive('send')->once()->andReturn(true);
+        $this->mockTransport->shouldReceive('sendAsync')->once();
 
         $exception = new RuntimeException('Duplicate exception');
 
@@ -64,7 +64,7 @@ class MonitoringClientDeduplicationTest extends TestCase
     #[Test]
     public function it_returns_an_event_id_for_a_different_exception_instance(): void
     {
-        $this->mockTransport->shouldReceive('send')->twice()->andReturn(true);
+        $this->mockTransport->shouldReceive('sendAsync')->twice();
 
         $exceptionA = new RuntimeException('Exception A');
         $exceptionB = new RuntimeException('Exception A'); // same message, different object
@@ -81,7 +81,7 @@ class MonitoringClientDeduplicationTest extends TestCase
     #[Test]
     public function it_allows_recapture_after_clear_captured_exceptions(): void
     {
-        $this->mockTransport->shouldReceive('send')->twice()->andReturn(true);
+        $this->mockTransport->shouldReceive('sendAsync')->twice();
 
         $exception = new RuntimeException('Recaptured exception');
 
@@ -99,14 +99,13 @@ class MonitoringClientDeduplicationTest extends TestCase
     #[Test]
     public function it_includes_tags_in_the_payload_sent_to_transport(): void
     {
-        $this->mockTransport->shouldReceive('send')
+        $this->mockTransport->shouldReceive('sendAsync')
             ->once()
             ->with(Mockery::on(function (array $payload): bool {
                 return isset($payload['tags'])
                     && $payload['tags']['env'] === 'testing'
                     && $payload['tags']['team'] === 'backend';
-            }))
-            ->andReturn(true);
+            }));
 
         $exception = new RuntimeException('Exception with tags');
 
@@ -123,14 +122,13 @@ class MonitoringClientDeduplicationTest extends TestCase
     #[Test]
     public function it_includes_extra_data_in_the_payload_sent_to_transport(): void
     {
-        $this->mockTransport->shouldReceive('send')
+        $this->mockTransport->shouldReceive('sendAsync')
             ->once()
             ->with(Mockery::on(function (array $payload): bool {
                 return isset($payload['extra'])
                     && $payload['extra']['user_id'] === 42
                     && $payload['extra']['action'] === 'checkout';
-            }))
-            ->andReturn(true);
+            }));
 
         $exception = new LogicException('Exception with extra');
 

@@ -21,10 +21,29 @@ return [
 
     // Transport/resilience configuration
     'transport' => [
+        // Delivery mode for events / transactions / logs:
+        //   - 'auto'  → 'queue' if a non-sync queue driver is available, else 'async'
+        //   - 'async' → fire-and-forget Guzzle promise, drained at fastcgi_finish_request
+        //   - 'queue' → dispatch SendEventJob onto the host's queue (recommended)
+        //   - 'sync'  → blocking POST (only for tests / CLI workers)
+        'mode' => env('ERRORWATCH_TRANSPORT_MODE', 'auto'),
+
+        // Hard wall-clock budget (ms) for ALL SDK transport I/O during a
+        // single request. Once consumed, every subsequent event is dropped
+        // — the host app never pays more than this for monitoring.
+        'request_budget_ms' => (int) env('ERRORWATCH_REQUEST_BUDGET_MS', 50),
+
+        // Optional: the queue connection / name used in 'queue' mode.
+        // Defaults to the application's default queue connection.
+        'queue_connection' => env('ERRORWATCH_QUEUE_CONNECTION'),
+        'queue_name'       => env('ERRORWATCH_QUEUE_NAME', 'default'),
+
         'timeout' => 5,
         'retry_attempts' => env('ERRORWATCH_RETRY_ATTEMPTS', 2),
-        'circuit_breaker_threshold' => 5,
-        'circuit_breaker_cooldown' => 60,
+        // Tighter defaults so a flapping API does not cascade into host-app
+        // latency: 3 failures over 30 s opens the breaker for 30 s.
+        'circuit_breaker_threshold' => 3,
+        'circuit_breaker_cooldown' => 30,
     ],
 
     // Session replay configuration

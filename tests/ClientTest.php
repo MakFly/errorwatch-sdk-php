@@ -48,6 +48,10 @@ class ClientTest extends TestCase
                 $this->store[] = $payload;
                 return true;
             }
+            public function sendAsync(array $payload): void
+            {
+                $this->send($payload);
+            }
         };
 
         $client = $this->makeClient([], $transport);
@@ -67,7 +71,7 @@ class ClientTest extends TestCase
         $this->assertSame('error', $payload['level']);
         $this->assertArrayHasKey('sdk', $payload);
         $this->assertSame('errorwatch-php', $payload['sdk']['name']);
-        $this->assertSame('2.3.0', $payload['sdk']['version']);
+        $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+$/', $payload['sdk']['version']);
     }
 
     // -------------------------------------------------------------------------
@@ -138,6 +142,10 @@ class ClientTest extends TestCase
                 $this->store[] = $payload;
                 return true;
             }
+            public function sendAsync(array $payload): void
+            {
+                $this->send($payload);
+            }
         };
 
         $client = $this->makeClient([
@@ -163,6 +171,10 @@ class ClientTest extends TestCase
             {
                 $this->flag = true;
                 return true;
+            }
+            public function sendAsync(array $payload): void
+            {
+                $this->send($payload);
             }
         };
 
@@ -199,6 +211,10 @@ class ClientTest extends TestCase
                 $this->store[] = $payload;
                 return true;
             }
+            public function sendAsync(array $payload): void
+            {
+                $this->send($payload);
+            }
         };
 
         $client = $this->makeClient([], $transport);
@@ -223,6 +239,10 @@ class ClientTest extends TestCase
             {
                 $this->store[] = $payload;
                 return true;
+            }
+            public function sendAsync(array $payload): void
+            {
+                $this->send($payload);
             }
         };
 

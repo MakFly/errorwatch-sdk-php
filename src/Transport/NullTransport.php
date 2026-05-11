@@ -13,4 +13,8 @@ class NullTransport implements TransportInterface
     {
         return true;
     }
+
+    public function sendAsync(array $payload): void
+    {
+    }
 }

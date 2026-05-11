@@ -2,6 +2,8 @@
 
 namespace ErrorWatch\Symfony\Http;
 
+use ErrorWatch\Sdk\Transport\RequestBudget;
+use ErrorWatch\Sdk\Transport\TransportMetrics;
 use ErrorWatch\Symfony\Service\ErrorWatchLogger;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -13,18 +15,38 @@ class MonitoringClient implements MonitoringClientInterface
     private HttpClientInterface $client;
     private ?ErrorWatchLogger $logger;
     private bool $configured;
+    private RequestBudget $budget;
+    private TransportMetrics $metrics;
+
+    /** @var list<ResponseInterface> */
+    private array $pendingResponses = [];
+    private bool $shutdownRegistered = false;
 
     public function __construct(
         ?string $endpoint,
         ?string $apiKey,
         ?HttpClientInterface $client = null,
-        ?ErrorWatchLogger $logger = null
+        ?ErrorWatchLogger $logger = null,
+        ?RequestBudget $budget = null,
+        ?TransportMetrics $metrics = null,
     ) {
         $this->endpoint = $endpoint ?? '';
         $this->apiKey = $apiKey ?? '';
         $this->client = $client ?? \Symfony\Component\HttpClient\HttpClient::create();
         $this->logger = $logger;
         $this->configured = $this->validateConfiguration();
+        $this->budget = $budget ?? new RequestBudget(50);
+        $this->metrics = $metrics ?? new TransportMetrics();
+    }
+
+    public function getMetrics(): TransportMetrics
+    {
+        return $this->metrics;
+    }
+
+    public function getBudget(): RequestBudget
+    {
+        return $this->budget;
     }
 
     /**
@@ -125,17 +147,83 @@ class MonitoringClient implements MonitoringClientInterface
      */
     public function sendEventAsync(array $payload): void
     {
+        $this->dispatchAsync($this->endpoint.'/api/v1/event', $payload);
+    }
+
+    private function dispatchAsync(string $url, array $payload): void
+    {
         if (!$this->configured) {
+            return;
+        }
+        if (!$this->budget->withinBudget()) {
+            $this->metrics->recordDrop('budget_exceeded');
             return;
         }
 
         try {
-            $response = $this->sendEvent($payload);
-            // Force the request to be sent (Symfony HttpClient is lazy)
-            $response->getStatusCode();
+            // Symfony HttpClient is lazy: request() returns immediately
+            // without issuing the network call. We DO NOT call
+            // getStatusCode() / getContent() / toArray() here — that
+            // would force a sync wait. The response is parked in
+            // $pendingResponses and drained at kernel.terminate via
+            // flushAsync(), which uses HttpClient::stream() to wait
+            // for all responses concurrently.
+            $response = $this->client->request('POST', $url, [
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'X-API-Key' => $this->apiKey,
+                ],
+                'body' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
+                'timeout' => 2,
+            ]);
+            $this->pendingResponses[] = $response;
+            $this->metrics->recordAsync();
+            $this->registerShutdownDrainOnce();
         } catch (\Throwable $e) {
-            // Silently fail to avoid breaking the application
+            $this->metrics->recordDrop('async_setup_failed');
         }
+    }
+
+    public function sendTransactionAsync(array $payload): void
+    {
+        $this->dispatchAsync($this->endpoint.'/api/v1/performance/transaction', $payload);
+    }
+
+    public function sendLogAsync(array $payload): void
+    {
+        $this->dispatchAsync($this->endpoint.'/api/v1/logs', $payload);
+    }
+
+    public function flushAsync(): void
+    {
+        if (empty($this->pendingResponses) || !$this->configured) {
+            return;
+        }
+        try {
+            // stream() multiplexes concurrent responses. Iterating
+            // consumes them; we use a soft timeout so a hung server
+            // never blocks shutdown beyond the SDK's own timeout.
+            foreach ($this->client->stream($this->pendingResponses, 2.0) as $chunk) {
+                if ($chunk->isLast() || $chunk->isTimeout()) {
+                    continue;
+                }
+            }
+        } catch (\Throwable) {
+            // never let drain crash the host process
+        } finally {
+            $this->pendingResponses = [];
+        }
+    }
+
+    private function registerShutdownDrainOnce(): void
+    {
+        if ($this->shutdownRegistered) {
+            return;
+        }
+        $this->shutdownRegistered = true;
+        register_shutdown_function(function (): void {
+            $this->flushAsync();
+        });
     }
 
     public function sendTransaction(array $payload): void
