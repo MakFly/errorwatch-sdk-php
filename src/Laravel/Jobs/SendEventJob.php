@@ -49,6 +49,14 @@ final class SendEventJob implements ShouldQueue
     {
         $transport = $client->getTransport();
 
+        // Each queue job is its own delivery lifecycle. Queue workers reuse the
+        // MonitoringClient singleton, so the transport's RequestBudget is shared
+        // across every job; without this reset the budget is exhausted after a
+        // few sends and all later jobs are silently dropped (budget_exceeded).
+        // Circuit-breaker / rate-limit state is intentionally NOT reset — it is
+        // shared cross-job protection against a broken endpoint.
+        $transport->getBudget()->reset();
+
         match ($this->kind) {
             'event'       => $transport->send($this->payload),
             'transaction' => $transport->sendTransaction($this->payload, $this->env),

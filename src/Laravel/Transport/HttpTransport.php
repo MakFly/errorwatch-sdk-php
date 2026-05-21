@@ -3,15 +3,15 @@ declare(strict_types=1);
 
 namespace ErrorWatch\Laravel\Transport;
 
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 use ErrorWatch\Sdk\Transport\RequestBudget;
-use ErrorWatch\Sdk\Transport\TransportInterface;
 use ErrorWatch\Sdk\Transport\TransportMetrics;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Promise\PromiseInterface;
 
-class HttpTransport implements TransportInterface
+class HttpTransport implements AsyncTransportInterface
 {
     /** Hard cap on connect time on the request hot path. */
     private const HOT_PATH_CONNECT_TIMEOUT_S = 0.3;
@@ -308,11 +308,17 @@ class HttpTransport implements TransportInterface
             return false;
         }
 
+        $startedAt = microtime(true);
+
         try {
             $response = $this->client->post($this->getLogsUrl(), [
                 'headers' => $this->getHeaders(),
                 'json'    => $logEntry,
             ]);
+
+            // Consume the budget right after the response, before inspecting
+            // the status — a slow non-2xx response must count too.
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
 
             $statusCode = $response->getStatusCode();
 
@@ -325,6 +331,14 @@ class HttpTransport implements TransportInterface
             return false;
 
         } catch (GuzzleException $e) {
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
+            $this->circuitBreaker->recordFailure();
+            error_log('[ErrorWatch] Failed to send log: ' . $e->getMessage());
+            return false;
+        } catch (\Throwable $e) {
+            // The SDK must never break the host app — swallow non-Guzzle errors
+            // (JSON encoding, etc.) and still account for the elapsed time.
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
             $this->circuitBreaker->recordFailure();
             error_log('[ErrorWatch] Failed to send log: ' . $e->getMessage());
             return false;
@@ -352,11 +366,17 @@ class HttpTransport implements TransportInterface
             'env'         => $env,
         ];
 
+        $startedAt = microtime(true);
+
         try {
             $response = $this->client->post($this->getTransactionUrl(), [
                 'headers' => $this->getHeaders(),
                 'json'    => $payload,
             ]);
+
+            // Consume the budget right after the response, before inspecting
+            // the status — a slow non-2xx response must count too.
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
 
             $statusCode = $response->getStatusCode();
 
@@ -369,6 +389,14 @@ class HttpTransport implements TransportInterface
             return false;
 
         } catch (GuzzleException $e) {
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
+            $this->circuitBreaker->recordFailure();
+            error_log('[ErrorWatch] Failed to send transaction: ' . $e->getMessage());
+            return false;
+        } catch (\Throwable $e) {
+            // The SDK must never break the host app — swallow non-Guzzle errors
+            // (JSON encoding, etc.) and still account for the elapsed time.
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
             $this->circuitBreaker->recordFailure();
             error_log('[ErrorWatch] Failed to send transaction: ' . $e->getMessage());
             return false;

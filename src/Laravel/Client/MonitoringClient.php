@@ -6,13 +6,16 @@ namespace ErrorWatch\Laravel\Client;
 
 use ErrorWatch\Laravel\Breadcrumbs\BreadcrumbManager;
 use ErrorWatch\Laravel\Context\UserContext;
+use ErrorWatch\Laravel\Jobs\SendEventJob;
 use ErrorWatch\Laravel\Tracing\RequestTracer;
 use ErrorWatch\Laravel\Tracing\Span;
 use ErrorWatch\Laravel\Tracing\TraceContext;
 use ErrorWatch\Laravel\Transport\HttpTransport;
+use ErrorWatch\Laravel\Transport\QueueDispatchingTransport;
 use ErrorWatch\Laravel\Transport\TransportDelegate;
 use ErrorWatch\Sdk\Client as SdkClient;
 use ErrorWatch\Sdk\Options as SdkOptions;
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 use SplObjectStorage;
 use Throwable;
 
@@ -29,6 +32,15 @@ class MonitoringClient
 
     protected array $config;
     protected HttpTransport $transport;
+
+    /**
+     * Mode-aware transport delegate: a QueueDispatchingTransport in `queue`
+     * mode, a plain TransportDelegate otherwise. Send paths that bypass the
+     * core SDK pipeline (captureEvent) must route through this so `queue`
+     * mode is honoured instead of issuing in-request HTTP.
+     */
+    private AsyncTransportInterface $sdkTransportDelegate;
+
     protected BreadcrumbManager $breadcrumbs;
     protected UserContext $userContext;
     protected RequestTracer $tracer;
@@ -72,12 +84,13 @@ class MonitoringClient
 
         $resolver = fn () => $this->transport;
         $delegate = $resolvedMode === 'queue'
-            ? new \ErrorWatch\Laravel\Transport\QueueDispatchingTransport(
+            ? new QueueDispatchingTransport(
                 $resolver,
                 $config['transport']['queue_connection'] ?? null,
                 $config['transport']['queue_name'] ?? 'default',
             )
             : new TransportDelegate($resolver);
+        $this->sdkTransportDelegate = $delegate;
         $this->sdkClient = new SdkClient($sdkOptions, $delegate);
     }
 
@@ -283,10 +296,13 @@ class MonitoringClient
             'user' => $this->userContext->getUser(),
         ], $event);
 
+        // Route through the mode-aware delegate so `queue` mode dispatches a
+        // SendEventJob instead of issuing an in-request HTTP call. In sync /
+        // async modes the delegate forwards to $this->transport unchanged.
         if (($this->config['transport']['mode'] ?? 'async') === 'sync') {
-            $this->transport->send($event);
+            $this->sdkTransportDelegate->send($event);
         } else {
-            $this->transport->sendAsync($event);
+            $this->sdkTransportDelegate->sendAsync($event);
         }
 
         return $event['event_id'] ?? null;
@@ -353,10 +369,19 @@ class MonitoringClient
      */
     public function setRequestContext(array $request, ?int $statusCode = null): void
     {
-        $this->sdkClient->getScope()->setRequest($request);
+        $scope = $this->sdkClient->getScope();
+        $scope->setRequest($request);
+
         if ($statusCode !== null) {
-            $this->sdkClient->getScope()->setStatusCode($statusCode);
-            $this->sdkClient->getScope()->setTag('http.status_code', (string) $statusCode);
+            $scope->setStatusCode($statusCode);
+            $scope->setTag('http.status_code', (string) $statusCode);
+        } else {
+            // Entry-of-request snapshot ($statusCode === null): explicitly drop
+            // any status carried over from a previous request. Long-running
+            // workers (Octane/RoadRunner) reuse this scope, so a stale 200/500
+            // would otherwise leak onto pre-response captures of this request.
+            $scope->setStatusCode(null);
+            $scope->removeTag('http.status_code');
         }
     }
 
@@ -417,16 +442,84 @@ class MonitoringClient
         // already received the response, but the host process should not
         // wait on APM I/O either way).
         if ($this->shouldSample($this->config['apm']['sample_rate'] ?? 1.0)) {
-            if (($this->config['transport']['mode'] ?? 'async') === 'sync') {
-                $this->transport->sendTransaction($transactionData, $this->config['environment'] ?? 'production');
+            $env  = $this->config['environment'] ?? 'production';
+            $mode = $this->config['transport']['mode'] ?? 'async';
+            if ($mode === 'sync') {
+                $this->transport->sendTransaction($transactionData, $env);
+            } elseif ($mode === 'queue') {
+                // Transactions are not part of TransportInterface, so the
+                // QueueDispatchingTransport delegate cannot carry them —
+                // dispatch the job directly, falling back to async HTTP.
+                $this->dispatchSendEventJob(
+                    'transaction',
+                    $transactionData,
+                    $env,
+                    fn () => $this->transport->sendTransactionAsync($transactionData, $env),
+                );
             } else {
-                $this->transport->sendTransactionAsync($transactionData, $this->config['environment'] ?? 'production');
+                $this->transport->sendTransactionAsync($transactionData, $env);
             }
         }
 
         $this->currentTransaction = null;
 
         return $transactionData;
+    }
+
+    /**
+     * Deliver a live log entry, honouring the resolved transport mode.
+     *
+     * In `queue` mode the entry is dispatched as a SendEventJob('log') so the
+     * web request lifecycle spends no time on log I/O — mirroring how events
+     * and transactions are routed. In sync / async modes the behaviour is
+     * unchanged (synchronous sendLog()).
+     *
+     * @param array<string, mixed> $logEntry
+     */
+    public function deliverLog(array $logEntry): void
+    {
+        if (($this->config['transport']['mode'] ?? 'async') === 'queue') {
+            $this->dispatchSendEventJob(
+                'log',
+                $logEntry,
+                null,
+                fn () => $this->transport->sendLog($logEntry),
+            );
+            return;
+        }
+
+        $this->transport->sendLog($logEntry);
+    }
+
+    /**
+     * Dispatch a SendEventJob for queue-mode delivery of payloads that bypass
+     * the core SDK pipeline (APM transactions, live logs). Applies the
+     * configured queue connection / name and falls back to $fallback if the
+     * dispatch itself fails (e.g. broken queue connection) so an event is
+     * never silently lost.
+     *
+     * @param 'event'|'transaction'|'log' $kind
+     * @param array<string, mixed>        $payload
+     * @param callable():void             $fallback
+     */
+    private function dispatchSendEventJob(string $kind, array $payload, ?string $env, callable $fallback): void
+    {
+        try {
+            if (function_exists('dispatch')) {
+                $job = new SendEventJob($kind, $payload, $env);
+                $connection = $this->config['transport']['queue_connection'] ?? null;
+                if ($connection !== null) {
+                    $job->onConnection($connection);
+                }
+                $job->onQueue($this->config['transport']['queue_name'] ?? 'default');
+                \dispatch($job);
+                return;
+            }
+        } catch (\Throwable $e) {
+            error_log('[ErrorWatch] Queue dispatch failed, falling back: ' . $e->getMessage());
+        }
+
+        $fallback();
     }
 
     // -------------------------------------------------------------------------
@@ -513,13 +606,25 @@ class MonitoringClient
         // Sync breadcrumbs: convert Laravel breadcrumb format to core Breadcrumb objects
         if ($this->config['breadcrumbs']['enabled'] ?? true) {
             $breadcrumbs = $this->breadcrumbs->all();
-            // Clear and re-add — scope::clear() resets breadcrumbs but also clears
-            // tags/user, so we only replace breadcrumbs via a fresh BreadcrumbBag trick.
-            // Instead, we call Scope::clear() and then re-apply everything.
+            // Scope::clear() wipes breadcrumbs (intended — avoids duplicating
+            // them on every capture) but also wipes the request snapshot +
+            // status_code set by ErrorWatchMiddleware::setRequestContext().
+            // Capture that request context before clearing and re-apply it
+            // after, so events keep request.url / request.method / status_code.
+            $request    = $scope->getRequest();
+            $statusCode = $scope->getStatusCode();
+
             $scope->clear();
 
             if ($user !== null) {
                 $scope->setUser($user);
+            }
+            if ($request !== null) {
+                $scope->setRequest($request);
+            }
+            if ($statusCode !== null) {
+                $scope->setStatusCode($statusCode);
+                $scope->setTag('http.status_code', (string) $statusCode);
             }
 
             foreach ($breadcrumbs as $bc) {

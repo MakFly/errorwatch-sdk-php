@@ -17,17 +17,7 @@ interface TransportInterface
      */
     public function send(array $payload): bool;
 
-    /**
-     * Fire-and-forget variant of send().
-     *
-     * MUST return as fast as possible (no network I/O on the caller's
-     * critical path). The actual delivery happens later — at process
-     * shutdown, on kernel.terminate, or via a queue worker.
-     *
-     * Transports that cannot honour the async contract MAY fall back
-     * to send() internally, but callers should treat this as best-effort.
-     *
-     * MUST NOT throw.
-     */
-    public function sendAsync(array $payload): void;
+    // NOTE: async delivery is opt-in via the separate AsyncTransportInterface.
+    // It is intentionally NOT declared here so third-party transports written
+    // against the original send()-only contract keep loading.
 }

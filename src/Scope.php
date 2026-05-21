@@ -49,6 +49,12 @@ class Scope
         return $this;
     }
 
+    public function removeTag(string $key): self
+    {
+        unset($this->tags[$key]);
+        return $this;
+    }
+
     public function setExtras(array $extras): self
     {
         $this->extras = array_merge($this->extras, $extras);
@@ -110,6 +116,9 @@ class Scope
         $this->extras      = [];
         $this->request     = null;
         $this->fingerprint = null;
+        $this->profile     = null;
+        $this->frames      = null;
+        $this->statusCode  = null;
         $this->level       = null;
         $this->breadcrumbBag->clear();
 
@@ -143,6 +152,11 @@ class Scope
     public function getFingerprint(): ?array
     {
         return $this->fingerprint;
+    }
+
+    public function getStatusCode(): ?int
+    {
+        return $this->statusCode;
     }
 
     public function getLevel(): ?Severity

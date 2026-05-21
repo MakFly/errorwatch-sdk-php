@@ -11,7 +11,7 @@ use GuzzleHttp\Psr7\Request;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
-class HttpTransport implements TransportInterface
+class HttpTransport implements AsyncTransportInterface
 {
     /** Hard cap on connect time when called from the request hot path. */
     private const HOT_PATH_CONNECT_TIMEOUT_S = 0.3;

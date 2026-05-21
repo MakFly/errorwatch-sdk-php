@@ -133,7 +133,9 @@ class ErrorWatchLogger
             'extra' => (object) ($context['extra'] ?? []),
         ];
 
-        $this->client->getTransport()->sendLog($logEntry);
+        // Route via the client so `queue` mode dispatches a SendEventJob('log')
+        // instead of issuing a synchronous HTTP call inside the web request.
+        $this->client->deliverLog($logEntry);
     }
 
     /**

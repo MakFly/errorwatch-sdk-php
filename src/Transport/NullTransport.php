@@ -7,7 +7,7 @@ namespace ErrorWatch\Sdk\Transport;
 /**
  * No-op transport — used when the SDK is disabled or in testing.
  */
-class NullTransport implements TransportInterface
+class NullTransport implements AsyncTransportInterface
 {
     public function send(array $payload): bool
     {

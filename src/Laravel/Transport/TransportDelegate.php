@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ErrorWatch\Laravel\Transport;
 
-use ErrorWatch\Sdk\Transport\TransportInterface;
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 
 /**
  * A transport proxy that delegates send() to the MonitoringClient's own HttpTransport.
@@ -14,13 +14,13 @@ use ErrorWatch\Sdk\Transport\TransportInterface;
  * it holds a reference to this delegate which reads the current transport from the
  * MonitoringClient on every call.
  */
-final class TransportDelegate implements TransportInterface
+final class TransportDelegate implements AsyncTransportInterface
 {
-    /** @var callable(): TransportInterface */
+    /** @var callable(): AsyncTransportInterface */
     private $resolver;
 
     /**
-     * @param callable(): TransportInterface $resolver
+     * @param callable(): AsyncTransportInterface $resolver
      */
     public function __construct(callable $resolver)
     {

@@ -338,6 +338,11 @@ class ErrorWatchServiceProvider extends ServiceProvider
                 $client->clearUser();
                 $client->getTransport()->resetState();
 
+                // Fully clear the core SDK scope between requests: clearUser()
+                // only resets `user`, leaving request / status_code / profile /
+                // frames from the previous request to leak into the next one.
+                $client->getSdkClient()->getScope()->clear();
+
                 if (method_exists($client, 'clearCapturedExceptions')) {
                     $client->clearCapturedExceptions();
                 }

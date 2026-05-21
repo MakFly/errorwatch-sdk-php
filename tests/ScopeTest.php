@@ -81,6 +81,10 @@ class ScopeTest extends TestCase
         $scope->addBreadcrumb(Breadcrumb::log('msg'));
         $scope->setFingerprint(['fp']);
         $scope->setLevel(Severity::FATAL);
+        $scope->setRequest(['url' => 'https://example.test/x']);
+        $scope->setStatusCode(503);
+        $scope->setProfile(['queries' => 3]);
+        $scope->setFrames([['function' => 'f']]);
 
         $scope->clear();
 
@@ -90,6 +94,19 @@ class ScopeTest extends TestCase
         $this->assertEmpty($scope->getBreadcrumbs());
         $this->assertNull($scope->getFingerprint());
         $this->assertNull($scope->getLevel());
+        $this->assertNull($scope->getRequest());
+        // statusCode / profile / frames were added after clear() was first
+        // written — clear() must reset them too, otherwise they leak across
+        // requests in long-running workers (Octane/RoadRunner).
+        $this->assertNull($scope->getStatusCode());
+
+        // profile / frames have no getter — assert indirectly: a cleared
+        // scope applied to a fresh event leaves no profile / frames payload.
+        $payload = $scope->applyToEvent(Event::fromMessage('after-clear', Severity::INFO))->toPayload();
+        $this->assertArrayNotHasKey('profile', $payload);
+        $this->assertArrayNotHasKey('frames', $payload);
+        $this->assertArrayNotHasKey('request', $payload);
+        $this->assertArrayNotHasKey('status_code', $payload);
     }
 
     public function test_apply_to_event_merges_context(): void

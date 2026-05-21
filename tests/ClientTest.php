@@ -8,6 +8,7 @@ use ErrorWatch\Sdk\Client;
 use ErrorWatch\Sdk\Event\Severity;
 use ErrorWatch\Sdk\Options;
 use ErrorWatch\Sdk\Scope;
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 use ErrorWatch\Sdk\Transport\NullTransport;
 use ErrorWatch\Sdk\Transport\TransportInterface;
 use PHPUnit\Framework\TestCase;
@@ -41,7 +42,7 @@ class ClientTest extends TestCase
     {
         $captured = [];
 
-        $transport = new class($captured) implements TransportInterface {
+        $transport = new class($captured) implements AsyncTransportInterface {
             public function __construct(private array &$store) {}
             public function send(array $payload): bool
             {
@@ -135,7 +136,7 @@ class ClientTest extends TestCase
     {
         $captured = [];
 
-        $transport = new class($captured) implements TransportInterface {
+        $transport = new class($captured) implements AsyncTransportInterface {
             public function __construct(private array &$store) {}
             public function send(array $payload): bool
             {
@@ -165,7 +166,7 @@ class ClientTest extends TestCase
     {
         $called = false;
 
-        $transport = new class($called) implements TransportInterface {
+        $transport = new class($called) implements AsyncTransportInterface {
             public function __construct(private bool &$flag) {}
             public function send(array $payload): bool
             {
@@ -204,7 +205,7 @@ class ClientTest extends TestCase
     {
         $captured = [];
 
-        $transport = new class($captured) implements TransportInterface {
+        $transport = new class($captured) implements AsyncTransportInterface {
             public function __construct(private array &$store) {}
             public function send(array $payload): bool
             {
@@ -233,7 +234,7 @@ class ClientTest extends TestCase
     {
         $captured = [];
 
-        $transport = new class($captured) implements TransportInterface {
+        $transport = new class($captured) implements AsyncTransportInterface {
             public function __construct(private array &$store) {}
             public function send(array $payload): bool
             {
@@ -273,5 +274,35 @@ class ClientTest extends TestCase
         $client->resetState();
 
         $this->assertNull($client->getScope()->getUser());
+    }
+
+    // -------------------------------------------------------------------------
+    // Backward compatibility: a transport implementing only the original
+    // send()-only TransportInterface (no sendAsync) must still work.
+    // -------------------------------------------------------------------------
+
+    public function test_legacy_transport_without_send_async_falls_back_to_send(): void
+    {
+        $captured = [];
+
+        // Only implements TransportInterface — no sendAsync(). This mirrors a
+        // third-party transport written before AsyncTransportInterface existed.
+        $transport = new class($captured) implements TransportInterface {
+            public function __construct(private array &$store) {}
+            public function send(array $payload): bool
+            {
+                $this->store[] = $payload;
+                return true;
+            }
+        };
+
+        // Default transport mode is async — Client must degrade gracefully to
+        // a blocking send() rather than fataling on a missing sendAsync().
+        $client = $this->makeClient([], $transport);
+        $eventId = $client->captureMessage('legacy transport', Severity::INFO);
+
+        $this->assertNotNull($eventId);
+        $this->assertCount(1, $captured);
+        $this->assertSame('legacy transport', $captured[0]['message']);
     }
 }

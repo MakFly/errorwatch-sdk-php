@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ErrorWatch\Laravel\Transport;
 
 use ErrorWatch\Laravel\Jobs\SendEventJob;
-use ErrorWatch\Sdk\Transport\TransportInterface;
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 
 /**
  * Wraps the real HttpTransport so the SDK's hot-path async send
@@ -15,9 +15,9 @@ use ErrorWatch\Sdk\Transport\TransportInterface;
  *
  * Used when `errorwatch.transport.mode` resolves to `queue`.
  */
-final class QueueDispatchingTransport implements TransportInterface
+final class QueueDispatchingTransport implements AsyncTransportInterface
 {
-    /** @var callable(): TransportInterface */
+    /** @var callable(): AsyncTransportInterface */
     private $resolver;
 
     public function __construct(

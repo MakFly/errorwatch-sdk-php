@@ -8,6 +8,7 @@ use ErrorWatch\Sdk\Event\Event;
 use ErrorWatch\Sdk\Event\Severity;
 use ErrorWatch\Sdk\Exception\StacktraceBuilder;
 use ErrorWatch\Sdk\Tracing\TraceContext;
+use ErrorWatch\Sdk\Transport\AsyncTransportInterface;
 use ErrorWatch\Sdk\Transport\HttpTransport;
 use ErrorWatch\Sdk\Transport\NullTransport;
 use ErrorWatch\Sdk\Transport\TransportInterface;
@@ -207,8 +208,16 @@ class Client
                 return $sent ? $eventId : null;
             }
 
-            $this->transport->sendAsync($payload);
-            return $eventId;
+            // Async delivery is opt-in: a legacy transport implementing only
+            // TransportInterface (no sendAsync) degrades gracefully to a
+            // blocking send() — best-effort, per the documented contract.
+            if ($this->transport instanceof AsyncTransportInterface) {
+                $this->transport->sendAsync($payload);
+                return $eventId;
+            }
+
+            $sent = $this->transport->send($payload);
+            return $sent ? $eventId : null;
         } catch (\Throwable) {
             return null;
         }
