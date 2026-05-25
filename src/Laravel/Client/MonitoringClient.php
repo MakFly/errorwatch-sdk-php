@@ -82,6 +82,13 @@ class MonitoringClient
         $config['transport']['mode'] = $resolvedMode;
         $this->config = $config;
 
+        // In batch mode the single transport accumulates every item (events,
+        // logs, transactions) and ships them as one POST /api/v1/batch at
+        // flush time — no per-item HTTP, no app-side queue/worker.
+        if ($resolvedMode === 'batch') {
+            $this->transport->enableBatchMode();
+        }
+
         $resolver = fn () => $this->transport;
         $delegate = $resolvedMode === 'queue'
             ? new QueueDispatchingTransport(
@@ -106,7 +113,7 @@ class MonitoringClient
     {
         $mode = strtolower((string) ($this->config['transport']['mode'] ?? 'async'));
         if ($mode !== 'auto') {
-            return in_array($mode, ['sync', 'async', 'queue'], true) ? $mode : 'async';
+            return in_array($mode, ['sync', 'async', 'queue', 'batch'], true) ? $mode : 'async';
         }
 
         try {

@@ -163,4 +163,44 @@ class HttpTransportTest extends TestCase
 
         $this->assertTrue($isLimited->invoke($transport));
     }
+
+    #[Test]
+    public function batch_mode_accumulates_items_instead_of_sending(): void
+    {
+        $transport = new HttpTransport('https://test.errorwatch.io', 'test-key');
+        $transport->enableBatchMode();
+
+        $transport->sendAsync(['event_id' => 'e1', 'level' => 'error']);
+        $transport->sendLogAsync(['level' => 'warning', 'message' => 'x']);
+        $transport->sendTransactionAsync(['name' => 'GET /x'], 'production');
+
+        $ref = new \ReflectionClass($transport);
+        $buf = $ref->getProperty('batchBuffer');
+        $buf->setAccessible(true);
+        $items = $buf->getValue($transport);
+
+        $this->assertCount(3, $items);
+        $this->assertSame('event', $items[0]['type']);
+        $this->assertSame('log', $items[1]['type']);
+        $this->assertSame('transaction', $items[2]['type']);
+        $this->assertSame('GET /x', $items[2]['payload']['transaction']['name']);
+    }
+
+    #[Test]
+    public function flush_batch_clears_the_buffer_even_when_the_send_fails(): void
+    {
+        $transport = new HttpTransport('https://test.errorwatch.io', 'test-key');
+        $transport->enableBatchMode();
+        $transport->sendAsync(['event_id' => 'e1', 'level' => 'error']);
+
+        // Network is unreachable in tests; flush must still drain the buffer so
+        // items never pile up unbounded.
+        $transport->flushBatch();
+
+        $ref = new \ReflectionClass($transport);
+        $buf = $ref->getProperty('batchBuffer');
+        $buf->setAccessible(true);
+
+        $this->assertEmpty($buf->getValue($transport));
+    }
 }

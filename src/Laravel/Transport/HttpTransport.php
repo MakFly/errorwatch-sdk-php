@@ -16,6 +16,9 @@ class HttpTransport implements AsyncTransportInterface
     /** Hard cap on connect time on the request hot path. */
     private const HOT_PATH_CONNECT_TIMEOUT_S = 0.3;
 
+    /** Flush the batch buffer early once it reaches this many items. */
+    private const MAX_BATCH_ITEMS = 100;
+
     protected Client         $client;
     protected string         $endpoint;
     protected string         $apiKey;
@@ -29,6 +32,16 @@ class HttpTransport implements AsyncTransportInterface
     private int              $rateLimitRemaining = PHP_INT_MAX;
     private RequestBudget    $budget;
     private TransportMetrics $metrics;
+
+    /**
+     * Batch mode: accumulate every item (events / logs / transactions) in
+     * memory and ship them in ONE POST to /api/v1/batch at flush time, instead
+     * of one HTTP request per item. Reliable in FrankenPHP classic mode and
+     * needs no app-side queue/worker.
+     */
+    private bool  $batchMode   = false;
+    /** @var array<int, array{type: string, payload: array}> */
+    private array $batchBuffer = [];
 
     public function __construct(
         string $endpoint,
@@ -108,11 +121,91 @@ class HttpTransport implements AsyncTransportInterface
     }
 
     /**
+     * Turn batch mode on/off. When on, every send becomes an in-memory
+     * accumulation flushed as a single POST to /api/v1/batch.
+     */
+    public function enableBatchMode(bool $on = true): void
+    {
+        $this->batchMode = $on;
+    }
+
+    /**
+     * Buffer one item for the next batch flush. Flushes early if the buffer
+     * grows past MAX_BATCH_ITEMS so memory stays bounded on a long request.
+     */
+    private function accumulate(string $type, array $payload): void
+    {
+        $this->batchBuffer[] = ['type' => $type, 'payload' => $payload];
+        if (count($this->batchBuffer) >= self::MAX_BATCH_ITEMS) {
+            $this->flushBatch();
+        }
+    }
+
+    /**
+     * Ship the buffered items as a single POST to /api/v1/batch.
+     * Honours the circuit breaker + rate-limit window; never throws.
+     */
+    public function flushBatch(): void
+    {
+        if (empty($this->batchBuffer)) {
+            return;
+        }
+        // Drop the buffer if we're not allowed to send — better to lose
+        // telemetry than to block the host or hammer a limited endpoint.
+        if (!$this->circuitBreaker->allowRequest()) {
+            $this->metrics->recordDrop('circuit_open');
+            $this->batchBuffer = [];
+            return;
+        }
+        if ($this->isRateLimited()) {
+            $this->metrics->recordDrop('rate_limited');
+            $this->batchBuffer = [];
+            return;
+        }
+
+        $items = $this->batchBuffer;
+        $this->batchBuffer = [];
+        $startedAt = microtime(true);
+
+        try {
+            $response = $this->client->post($this->getBatchUrl(), [
+                'headers' => $this->getHeaders(),
+                'json'    => ['items' => $items],
+            ]);
+
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
+            $statusCode = $response->getStatusCode();
+            $this->noteRateLimit($response, $statusCode);
+
+            if ($statusCode >= 200 && $statusCode < 300) {
+                $this->circuitBreaker->recordSuccess();
+                $this->metrics->recordSend((microtime(true) - $startedAt) * 1000.0, true);
+            } elseif ($statusCode >= 500) {
+                $this->circuitBreaker->recordFailure();
+                $this->metrics->recordSend((microtime(true) - $startedAt) * 1000.0, false, "http_{$statusCode}");
+            }
+            // 4xx (incl 429) are not retried — items are already cleared.
+        } catch (GuzzleException $e) {
+            $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
+            $this->circuitBreaker->recordFailure();
+            $this->metrics->recordSend((microtime(true) - $startedAt) * 1000.0, false, $e->getMessage());
+            error_log('[ErrorWatch] Batch send failed: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            $this->circuitBreaker->recordFailure();
+            error_log('[ErrorWatch] Batch send failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Send an event to the ErrorWatch API.
      * Applies circuit breaker, rate-limit guard, and retry logic.
      */
     public function send(array $payload): bool
     {
+        if ($this->batchMode) {
+            $this->accumulate('event', $payload);
+            return true;
+        }
         if (!$this->budget->withinBudget()) {
             $this->metrics->recordDrop('budget_exceeded');
             return false;
@@ -210,6 +303,10 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendAsync(array $payload): void
     {
+        if ($this->batchMode) {
+            $this->accumulate('event', $payload);
+            return;
+        }
         $this->dispatchAsync($this->getEventUrl(), $payload);
     }
 
@@ -218,6 +315,10 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendTransactionAsync(array $transaction, ?string $env = null): void
     {
+        if ($this->batchMode) {
+            $this->accumulate('transaction', ['transaction' => $transaction, 'env' => $env]);
+            return;
+        }
         $this->dispatchAsync($this->getTransactionUrl(), [
             'transaction' => $transaction,
             'env'         => $env,
@@ -229,6 +330,10 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendLogAsync(array $logEntry): void
     {
+        if ($this->batchMode) {
+            $this->accumulate('log', $logEntry);
+            return;
+        }
         $this->dispatchAsync($this->getLogsUrl(), $logEntry);
     }
 
@@ -297,6 +402,9 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function flushAsync(): void
     {
+        // Ship any buffered batch items first (batch mode).
+        $this->flushBatch();
+
         foreach ($this->pendingPromises as $promise) {
             try {
                 /** @var PromiseInterface $promise */
@@ -342,6 +450,10 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendLog(array $logEntry): bool
     {
+        if ($this->batchMode) {
+            $this->accumulate('log', $logEntry);
+            return true;
+        }
         if (!$this->budget->withinBudget()) {
             $this->metrics->recordDrop('budget_exceeded');
             return false;
@@ -395,6 +507,10 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendTransaction(array $transaction, ?string $env = null): bool
     {
+        if ($this->batchMode) {
+            $this->accumulate('transaction', ['transaction' => $transaction, 'env' => $env]);
+            return true;
+        }
         if (!$this->budget->withinBudget()) {
             $this->metrics->recordDrop('budget_exceeded');
             return false;
@@ -471,6 +587,7 @@ class HttpTransport implements AsyncTransportInterface
     {
         $this->pendingPromises    = [];
         $this->pendingEvents      = [];
+        $this->batchBuffer        = [];
         $this->rateLimitRemaining = PHP_INT_MAX;
         $this->rateLimitResetAt   = null;
         $this->budget->reset();
@@ -514,6 +631,14 @@ class HttpTransport implements AsyncTransportInterface
     protected function getTransactionUrl(): string
     {
         return $this->endpoint . '/api/v1/performance/transaction';
+    }
+
+    /**
+     * Get the batch ingest endpoint URL.
+     */
+    protected function getBatchUrl(): string
+    {
+        return $this->endpoint . '/api/v1/batch';
     }
 
     /**
