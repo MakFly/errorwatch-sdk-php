@@ -110,4 +110,57 @@ class HttpTransportTest extends TestCase
 
         $this->assertFalse($transport->sendLog(['level' => 'error', 'message' => 'x']));
     }
+
+    #[Test]
+    public function it_short_circuits_send_while_a_rate_limit_window_is_active(): void
+    {
+        $transport = new HttpTransport('https://test.errorwatch.io', 'test-key');
+
+        // Force an active server rate-limit window via reflection.
+        $ref = new \ReflectionClass($transport);
+        $rem = $ref->getProperty('rateLimitRemaining');
+        $rem->setAccessible(true);
+        $rem->setValue($transport, 0);
+        $reset = $ref->getProperty('rateLimitResetAt');
+        $reset->setAccessible(true);
+        $reset->setValue($transport, time() + 60);
+
+        // send() must back off (return false) without ever hitting the network.
+        $this->assertFalse($transport->send(['event_id' => 'x', 'level' => 'error']));
+    }
+
+    #[Test]
+    public function note_rate_limit_opens_a_window_on_429_with_retry_after(): void
+    {
+        $transport = new HttpTransport('https://test.errorwatch.io', 'test-key');
+        $ref       = new \ReflectionClass($transport);
+        $note      = $ref->getMethod('noteRateLimit');
+        $note->setAccessible(true);
+        $isLimited = $ref->getMethod('isRateLimited');
+        $isLimited->setAccessible(true);
+
+        $response = new \GuzzleHttp\Psr7\Response(429, ['Retry-After' => '30']);
+        $note->invoke($transport, $response, 429);
+
+        $this->assertTrue($isLimited->invoke($transport));
+    }
+
+    #[Test]
+    public function note_rate_limit_honours_remaining_zero_on_2xx(): void
+    {
+        $transport = new HttpTransport('https://test.errorwatch.io', 'test-key');
+        $ref       = new \ReflectionClass($transport);
+        $note      = $ref->getMethod('noteRateLimit');
+        $note->setAccessible(true);
+        $isLimited = $ref->getMethod('isRateLimited');
+        $isLimited->setAccessible(true);
+
+        $response = new \GuzzleHttp\Psr7\Response(200, [
+            'X-RateLimit-Remaining' => '0',
+            'X-RateLimit-Reset'     => (string) (time() + 60),
+        ]);
+        $note->invoke($transport, $response, 200);
+
+        $this->assertTrue($isLimited->invoke($transport));
+    }
 }

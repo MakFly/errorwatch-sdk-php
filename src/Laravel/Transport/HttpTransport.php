@@ -60,6 +60,54 @@ class HttpTransport implements AsyncTransportInterface
     }
 
     /**
+     * True while a server-advertised rate-limit window is still active.
+     * Honoured by BOTH the sync and async send paths so the SDK backs off
+     * locally instead of hammering the ingest endpoint with doomed requests.
+     */
+    private function isRateLimited(): bool
+    {
+        return $this->rateLimitRemaining <= 0
+            && $this->rateLimitResetAt !== null
+            && time() < $this->rateLimitResetAt;
+    }
+
+    /**
+     * Update local rate-limit state from a response's headers
+     * (`X-RateLimit-Remaining` / `X-RateLimit-Reset` / `Retry-After`).
+     * On a 429, force a back-off window even if the server only sent
+     * `Retry-After` (or nothing). Returns the Retry-After seconds if present.
+     */
+    private function noteRateLimit($response, int $statusCode): ?int
+    {
+        $retryAfter = null;
+
+        if (method_exists($response, 'getHeaderLine')) {
+            $remaining = $response->getHeaderLine('X-RateLimit-Remaining');
+            $reset     = $response->getHeaderLine('X-RateLimit-Reset');
+            $ra        = $response->getHeaderLine('Retry-After');
+
+            if ($remaining !== '') {
+                $this->rateLimitRemaining = (int) $remaining;
+            }
+            if ($reset !== '') {
+                $this->rateLimitResetAt = (int) $reset;
+            }
+            if ($ra !== '') {
+                $retryAfter = (int) $ra;
+            }
+        }
+
+        if ($statusCode === 429) {
+            $this->rateLimitRemaining = 0;
+            if ($this->rateLimitResetAt === null || $this->rateLimitResetAt <= time()) {
+                $this->rateLimitResetAt = time() + max(1, $retryAfter ?? 1);
+            }
+        }
+
+        return $retryAfter;
+    }
+
+    /**
      * Send an event to the ErrorWatch API.
      * Applies circuit breaker, rate-limit guard, and retry logic.
      */
@@ -76,7 +124,7 @@ class HttpTransport implements AsyncTransportInterface
             return false;
         }
 
-        if ($this->rateLimitRemaining <= 0 && $this->rateLimitResetAt !== null && time() < $this->rateLimitResetAt) {
+        if ($this->isRateLimited()) {
             $this->metrics->recordDrop('rate_limited');
             error_log('[ErrorWatch] Rate limit active — skipping event send.');
             return false;
@@ -109,21 +157,8 @@ class HttpTransport implements AsyncTransportInterface
 
                 $statusCode = $response->getStatusCode();
 
-                // Parse rate-limit headers
-                $remaining = $response->getHeaderLine('X-RateLimit-Remaining');
-                $reset     = $response->getHeaderLine('X-RateLimit-Reset');
-                if ($remaining !== '') {
-                    $this->rateLimitRemaining = (int) $remaining;
-                }
-                if ($reset !== '') {
-                    $this->rateLimitResetAt = (int) $reset;
-                }
-
-                // Parse Retry-After header for 429
-                $retryAfterHeader = $response->getHeaderLine('Retry-After');
-                if ($retryAfterHeader !== '') {
-                    $retryAfterSeconds = (int) $retryAfterHeader;
-                }
+                // Update rate-limit state (X-RateLimit-* / Retry-After / 429 back-off).
+                $retryAfterSeconds = $this->noteRateLimit($response, $statusCode);
 
                 $this->budget->consume((microtime(true) - $sendStartedAt) * 1000.0);
 
@@ -207,6 +242,10 @@ class HttpTransport implements AsyncTransportInterface
             $this->metrics->recordDrop('circuit_open');
             return;
         }
+        if ($this->isRateLimited()) {
+            $this->metrics->recordDrop('rate_limited');
+            return;
+        }
 
         try {
             $request = new Request(
@@ -223,8 +262,13 @@ class HttpTransport implements AsyncTransportInterface
                 function ($response): void {
                     if (method_exists($response, 'getStatusCode')) {
                         $status = $response->getStatusCode();
+                        // Honour server rate-limit headers on the async path too,
+                        // so the next requests back off instead of flooding.
+                        $this->noteRateLimit($response, $status);
                         if ($status >= 200 && $status < 300) {
                             $this->circuitBreaker->recordSuccess();
+                        } elseif ($status === 429) {
+                            $this->metrics->recordDrop('rate_limited');
                         } elseif ($status >= 500) {
                             $this->circuitBreaker->recordFailure();
                             $this->metrics->recordSend(0.0, false, "http_{$status}");
