@@ -142,6 +142,25 @@ class HttpTransport implements AsyncTransportInterface
     }
 
     /**
+     * Surface a client-side rejection (4xx, esp. 413 Payload Too Large / 422
+     * Unprocessable Entity) instead of swallowing it. These never succeed on
+     * retry, so we do NOT retry — we record the failure on the metrics so a
+     * debug command can see it, and emit a concise one-line diagnostic.
+     */
+    private function noteClientRejection(string $endpoint, int $statusCode, string $itemType, int $rejectedCount): void
+    {
+        $this->metrics->recordSend(0.0, false, "http_{$statusCode}");
+        error_log(sprintf(
+            '[ErrorWatch] Rejected by API: HTTP %d %s (%d %s item%s discarded, not retried).',
+            $statusCode,
+            $endpoint,
+            $rejectedCount,
+            $itemType,
+            $rejectedCount === 1 ? '' : 's',
+        ));
+    }
+
+    /**
      * Ship the buffered items as a single POST to /api/v1/batch.
      * Honours the circuit breaker + rate-limit window; never throws.
      */
@@ -183,8 +202,12 @@ class HttpTransport implements AsyncTransportInterface
             } elseif ($statusCode >= 500) {
                 $this->circuitBreaker->recordFailure();
                 $this->metrics->recordSend((microtime(true) - $startedAt) * 1000.0, false, "http_{$statusCode}");
+            } elseif ($statusCode >= 400 && $statusCode !== 429) {
+                // 4xx (incl 413/422) are not retried — items are already
+                // cleared — but surface the rejection instead of swallowing it.
+                $this->noteClientRejection($this->getBatchUrl(), $statusCode, 'batch', count($items));
             }
-            // 4xx (incl 429) are not retried — items are already cleared.
+            // 429 opens the rate-limit window above; items are not retried.
         } catch (GuzzleException $e) {
             $this->budget->consume((microtime(true) - $startedAt) * 1000.0);
             $this->circuitBreaker->recordFailure();
@@ -281,8 +304,9 @@ class HttpTransport implements AsyncTransportInterface
                     continue;
                 }
 
-                // Non-retryable error (4xx etc.)
-                error_log("[ErrorWatch] Failed to send event: HTTP {$statusCode}.");
+                // Non-retryable error (4xx, incl 413/422) — surface it on the
+                // metrics + a concise diagnostic instead of swallowing.
+                $this->noteClientRejection($this->getEventUrl(), $statusCode, 'event', 1);
                 return false;
 
             } catch (GuzzleException $e) {
@@ -483,7 +507,13 @@ class HttpTransport implements AsyncTransportInterface
                 return true;
             }
 
-            error_log("[ErrorWatch] Failed to send log: HTTP {$statusCode}.");
+            // 4xx (incl 413 Payload Too Large / 422 Unprocessable Entity) are
+            // not retried — surface them instead of swallowing silently.
+            if ($statusCode >= 400 && $statusCode < 500) {
+                $this->noteClientRejection($this->getLogsUrl(), $statusCode, 'log', 1);
+            } else {
+                error_log("[ErrorWatch] Failed to send log: HTTP {$statusCode}.");
+            }
             return false;
 
         } catch (GuzzleException $e) {
@@ -545,7 +575,13 @@ class HttpTransport implements AsyncTransportInterface
                 return true;
             }
 
-            error_log("[ErrorWatch] Failed to send transaction: HTTP {$statusCode}.");
+            // 4xx (incl 413/422) are not retried — surface them instead of
+            // swallowing silently.
+            if ($statusCode >= 400 && $statusCode < 500) {
+                $this->noteClientRejection($this->getTransactionUrl(), $statusCode, 'transaction', 1);
+            } else {
+                error_log("[ErrorWatch] Failed to send transaction: HTTP {$statusCode}.");
+            }
             return false;
 
         } catch (GuzzleException $e) {

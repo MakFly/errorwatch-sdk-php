@@ -10,6 +10,13 @@ use Throwable;
 
 class ErrorWatchLogger
 {
+    /**
+     * Hard cap the backend enforces on a log/event `message` (20000 chars).
+     * We truncate below it so a long message is delivered (clipped) rather
+     * than silently rejected by the API's Zod schema.
+     */
+    private const MAX_MESSAGE_LENGTH = 18000;
+
     protected MonitoringClient $client;
     protected array $config;
     protected array $levelMap = [
@@ -43,6 +50,11 @@ class ErrorWatchLogger
         if (!$this->shouldLog($level, $minLevel)) {
             return;
         }
+
+        // Clip the message below the backend cap BEFORE both delivery paths
+        // (captureMessage event path + sendLiveLog log path). Without this the
+        // API silently drops the whole item when message > 20000 chars.
+        $message = $this->truncateMessage($message);
 
         $formattedContext = [
             'context' => $context['context'] ?? [],
@@ -116,6 +128,22 @@ class ErrorWatchLogger
         return $levelValue >= $minLevelValue;
     }
 
+    /**
+     * Clip a message to MAX_MESSAGE_LENGTH, appending a marker noting how many
+     * characters were dropped. Multibyte-safe so we never split a UTF-8 byte
+     * sequence and produce invalid JSON. No-op for messages within the cap.
+     */
+    protected function truncateMessage(string $message): string
+    {
+        if (mb_strlen($message) <= self::MAX_MESSAGE_LENGTH) {
+            return $message;
+        }
+
+        $dropped = mb_strlen($message) - self::MAX_MESSAGE_LENGTH;
+
+        return mb_substr($message, 0, self::MAX_MESSAGE_LENGTH) . " …[truncated {$dropped} chars]";
+    }
+
     protected function sendLiveLog(string $level, string $message, array $context): void
     {
         $excludedChannels = $this->client->getConfig('logs.excluded_channels', []);
@@ -124,14 +152,35 @@ class ErrorWatchLogger
             return;
         }
 
+        // Pull the final request URL + HTTP status from the SDK scope (set by
+        // ErrorWatchMiddleware on the post-response snapshot) so the backend can
+        // filter logs by status_code, mirroring the event path. The final
+        // status wins; an explicit caller-supplied value still takes priority.
+        $requestContext = $this->client->getRequestContext();
+        $logContext     = $context['context'] ?? [];
+        if (!isset($logContext['status_code']) && $requestContext['status_code'] !== null) {
+            $logContext['status_code'] = $requestContext['status_code'];
+        }
+
+        // Resolve the effective HTTP status once: an explicit caller value (now
+        // merged into $logContext) wins, otherwise the request scope. We send it
+        // as a top-level `status_code` (the backend `application_logs.status_code`
+        // column + log ingest field) AND keep it in `context` for older backends.
+        $statusCode = $logContext['status_code'] ?? null;
+
         $logEntry = [
             'level' => $level,
             'message' => $message,
             'timestamp' => microtime(true),
             'channel' => $context['channel'] ?? 'application',
-            'context' => (object) ($context['context'] ?? []),
+            'url' => $context['url'] ?? $requestContext['url'],
+            'context' => (object) $logContext,
             'extra' => (object) ($context['extra'] ?? []),
         ];
+
+        if ($statusCode !== null) {
+            $logEntry['status_code'] = $statusCode;
+        }
 
         // Route via the client so `queue` mode dispatches a SendEventJob('log')
         // instead of issuing a synchronous HTTP call inside the web request.

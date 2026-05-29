@@ -94,6 +94,25 @@ class MiddlewareTest extends TestCase
     }
 
     #[Test]
+    public function it_maps_a_4xx_response_to_canonical_error_status(): void
+    {
+        $middleware = $this->app->make(ErrorWatchMiddleware::class);
+        $request    = Request::create('/missing', 'GET');
+
+        $middleware->handle($request, fn ($req) => new Response('Not Found', 404));
+
+        // Hold the live Span reference; terminate() mutates it then clears the
+        // client pointer, but the object we hold keeps the final status.
+        $transaction = $this->client->getCurrentTransaction();
+        $this->assertNotNull($transaction);
+
+        $middleware->terminate($request, new Response('Not Found', 404));
+
+        $this->assertSame('error', $transaction->getStatus());
+        $this->assertNotSame('unknown_error', $transaction->getStatus());
+    }
+
+    #[Test]
     public function it_skips_excluded_routes(): void
     {
         // Build a dedicated MonitoringClient that already knows about the excluded route.

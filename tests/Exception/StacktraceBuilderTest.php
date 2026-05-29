@@ -65,7 +65,10 @@ class StacktraceBuilderTest extends TestCase
         // The origin frame (last) is this very test file — but the builder uses /app as root
         // and this file lives elsewhere, so it may be inApp=false. That's correct behaviour.
         // The test verifies the logic: anything starting with /app and NOT containing /vendor/ = true.
-        $builder = new StacktraceBuilder('/Users/kev/Documents/lab/sandbox/errorwatch/packages/sdk-php');
+        // Use the real repository root (this file lives under tests/Exception/)
+        // so the origin frame — this very test file — is detected as in-app on
+        // any machine/CI, instead of a hard-coded path that only matched one box.
+        $builder = new StacktraceBuilder(dirname(__DIR__, 2));
         $frames2 = $builder->buildFromThrowable($e);
 
         $origin = end($frames2);

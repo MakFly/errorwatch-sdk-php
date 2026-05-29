@@ -5,10 +5,40 @@ namespace ErrorWatch\Laravel\Tests\Unit;
 use ErrorWatch\Laravel\Tests\TestCase;
 use ErrorWatch\Laravel\Transport\HttpTransport;
 use ErrorWatch\Sdk\Transport\RequestBudget;
+use ErrorWatch\Sdk\Transport\TransportMetrics;
+use GuzzleHttp\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\Test;
 
 class HttpTransportTest extends TestCase
 {
+    /**
+     * Build a transport whose internal Guzzle client returns the queued
+     * responses, with a fresh TransportMetrics injected so we can assert
+     * what the rejection path recorded.
+     */
+    private function transportWithMockResponses(array $responses, TransportMetrics $metrics): HttpTransport
+    {
+        $transport = new HttpTransport(
+            'https://test.errorwatch.io',
+            'k',
+            5, 3, 30, 2, 60_000,
+            new RequestBudget(60_000),
+            $metrics,
+        );
+
+        $mock   = new MockHandler($responses);
+        $stack  = HandlerStack::create($mock);
+        $client = new Client(['handler' => $stack, 'http_errors' => false]);
+
+        $ref = new \ReflectionProperty($transport, 'client');
+        $ref->setValue($transport, $client);
+
+        return $transport;
+    }
+
     #[Test]
     public function it_can_create_transport(): void
     {
@@ -202,5 +232,45 @@ class HttpTransportTest extends TestCase
         $buf->setAccessible(true);
 
         $this->assertEmpty($buf->getValue($transport));
+    }
+
+    #[Test]
+    public function send_log_surfaces_a_413_rejection_on_the_metrics(): void
+    {
+        $metrics   = new TransportMetrics();
+        $transport = $this->transportWithMockResponses([new Response(413)], $metrics);
+
+        $result = $transport->sendLog(['level' => 'error', 'message' => 'too big']);
+
+        $this->assertFalse($result);
+        $this->assertSame(1, $metrics->errorCount, 'a 413 must be recorded, not swallowed');
+        $this->assertSame('http_413', $metrics->lastError);
+    }
+
+    #[Test]
+    public function send_transaction_surfaces_a_422_rejection_on_the_metrics(): void
+    {
+        $metrics   = new TransportMetrics();
+        $transport = $this->transportWithMockResponses([new Response(422)], $metrics);
+
+        $result = $transport->sendTransaction(['name' => 'GET /x'], 'production');
+
+        $this->assertFalse($result);
+        $this->assertSame(1, $metrics->errorCount, 'a 422 must be recorded, not swallowed');
+        $this->assertSame('http_422', $metrics->lastError);
+    }
+
+    #[Test]
+    public function flush_batch_surfaces_a_422_rejection_on_the_metrics(): void
+    {
+        $metrics   = new TransportMetrics();
+        $transport = $this->transportWithMockResponses([new Response(422)], $metrics);
+        $transport->enableBatchMode();
+        $transport->sendLogAsync(['level' => 'warning', 'message' => 'x']);
+
+        $transport->flushBatch();
+
+        $this->assertSame(1, $metrics->errorCount, 'a 422 batch reject must be recorded');
+        $this->assertSame('http_422', $metrics->lastError);
     }
 }
