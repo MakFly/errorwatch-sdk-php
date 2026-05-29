@@ -136,11 +136,11 @@ class ErrorWatchMiddleware
                 $transaction->setTag('http.status_code', $response->status());
                 $transaction->setData('response_size', strlen($response->getContent() ?? ''));
 
-                // Mark status based on response code
-                if ($response->status() >= 500) {
+                // Mark status based on response code. The backend's canonical
+                // transaction status set is ok|error|cancelled, so 4xx maps to
+                // "error" (not the out-of-contract "unknown_error" string).
+                if ($response->status() >= 400) {
                     $transaction->setError("HTTP {$response->status()}");
-                } elseif ($response->status() >= 400) {
-                    $transaction->setStatus('unknown_error', "HTTP {$response->status()}");
                 } else {
                     $transaction->setOk();
                 }

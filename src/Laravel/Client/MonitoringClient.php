@@ -393,6 +393,25 @@ class MonitoringClient
     }
 
     /**
+     * Read the current HTTP request context snapshot (url + final status code)
+     * from the SDK scope. Used by the live-log path so log items carry the
+     * same request.url / status_code the event path already gets, letting the
+     * backend filter logs by HTTP status.
+     *
+     * @return array{url: ?string, status_code: ?int}
+     */
+    public function getRequestContext(): array
+    {
+        $scope   = $this->sdkClient->getScope();
+        $request = $scope->getRequest();
+
+        return [
+            'url'         => $request['url'] ?? null,
+            'status_code' => $scope->getStatusCode(),
+        ];
+    }
+
+    /**
      * Get the current user.
      */
     public function getUser(): ?array
