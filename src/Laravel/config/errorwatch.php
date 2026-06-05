@@ -121,12 +121,23 @@ return [
         'excluded_routes' => ['telescope/*', 'horizon/*', '_ignition/*'],
     ],
 
-    // Laravel logging integration (replaces Monolog handler)
+    // Laravel logging integration (Sentry Monolog parity)
     'logging' => [
         'enabled' => env('ERRORWATCH_LOGGING_ENABLED', true),
+        // Legacy min level gate for the MessageLogged listener
         'level' => env('ERRORWATCH_LOG_LEVEL', 'debug'),
+        // info+ → breadcrumbs (buffered, sent with next event)
+        'breadcrumb_level' => env('ERRORWATCH_BREADCRUMB_LEVEL', 'info'),
+        // warning+ → live logs product (not issues)
+        'logs_level' => env('ERRORWATCH_LOGS_LEVEL', 'warning'),
+        // Sentry default: no issue per Log::error unless explicitly opted in
+        'capture_as_events' => env('ERRORWATCH_CAPTURE_LOG_EVENTS', false),
+        'capture_as_events_level' => env('ERRORWATCH_CAPTURE_LOG_EVENTS_LEVEL', 'fatal'),
         'excluded_channels' => ['errorwatch'],
     ],
+
+    // Application root for in_app frame detection
+    'project_root' => env('ERRORWATCH_PROJECT_ROOT'),
 
     // Exceptions handling configuration
     'exceptions' => [

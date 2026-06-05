@@ -29,10 +29,11 @@ final class ErrorMonitoringHandlerTest extends TestCase
 
         $this->client
             ->expects($this->once())
-            ->method('sendEventAsync')
+            ->method('sendLog')
             ->with($this->callback(static function (array $payload): bool {
                 return 'warning test' === $payload['message']
                     && 'warning' === $payload['level']
+                    && 'app' === $payload['channel']
                     && 'dev' === $payload['env']
                     && '1.2.3' === $payload['release'];
             }));
@@ -59,7 +60,7 @@ final class ErrorMonitoringHandlerTest extends TestCase
             excludedChannels: ['http_client']
         );
 
-        $this->client->expects($this->never())->method('sendEventAsync');
+        $this->client->expects($this->never())->method('sendLog');
 
         $record = new LogRecord(
             datetime: new \DateTimeImmutable(),
@@ -87,7 +88,7 @@ final class ErrorMonitoringHandlerTest extends TestCase
             release: null
         );
 
-        $this->client->expects($this->never())->method('sendEventAsync');
+        $this->client->expects($this->never())->method('sendLog');
 
         $record = new LogRecord(
             datetime: new \DateTimeImmutable(),

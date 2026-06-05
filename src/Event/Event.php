@@ -196,6 +196,12 @@ class Event
                 'type'  => $this->exception->type,
                 'value' => $this->exception->value,
             ];
+            if ($this->exception->mechanism !== null) {
+                $payload['exception']['mechanism'] = $this->exception->mechanism;
+            }
+            if ($this->exception->values !== null) {
+                $payload['exception']['values'] = $this->exception->values;
+            }
         }
 
         if ($this->frames !== null) {

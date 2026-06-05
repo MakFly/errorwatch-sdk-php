@@ -48,58 +48,25 @@ final class ErrorMonitoringHandler extends AbstractProcessingHandler
         $context = $this->captureContext ? $this->normalize($record->context) : [];
         $extra = $this->captureExtra ? $this->normalize($record->extra) : [];
 
-        $message = $record->message;
-        $file = 'monolog';
-        $line = 1;
-        $stack = $record->channel.'.'.$record->level->name.': '.$record->message;
-        $exception = null;
-
-        $payload = [
-            'message' => $message,
-            'file' => $file,
-            'line' => max(1, $line),
-            'stack' => $stack,
-            'env' => $this->environment,
+        // Sentry parity: Monolog records without a Throwable are live logs, not issues.
+        $logPayload = [
             'level' => $this->mapLevel($record->level),
+            'message' => $record->message,
+            'channel' => $record->channel,
+            'timestamp' => $record->datetime->getTimestamp() + ($record->datetime->format('u') / 1_000_000),
+            'context' => $context ?: null,
+            'extra' => $extra ?: null,
+            'env' => $this->environment,
             'release' => $this->release,
-            'created_at' => (int) $record->datetime->format('Uv'),
         ];
 
-        // When the log carries an actual Throwable, send the same rich
-        // payload as the ExceptionSubscriber path so the dashboard dedupe
-        // keeps the version with frames + fingerprint regardless of which
-        // handler ran first.
-        if (null !== $exception) {
-            if (null !== $this->fingerprintGenerator) {
-                $payload['fingerprint'] = $this->fingerprintGenerator->generate(
-                    $exception->getMessage(),
-                    $exception->getFile(),
-                    $exception->getLine(),
-                );
-            }
-            if (null !== $this->stacktraceBuilder) {
-                $payload['frames'] = array_map(
-                    static fn ($frame) => $frame->toArray(),
-                    $this->stacktraceBuilder->buildFromThrowable($exception),
-                );
-            }
-        }
-
         if (null !== $this->traceContext && $this->traceContext->hasContext()) {
-            $payload['trace_id'] = $this->traceContext->getTraceId();
-            $payload['span_id'] = $this->traceContext->getCurrentSpanId();
-        }
-
-        if (!empty($context) || !empty($extra)) {
-            $payload['context'] = array_filter([
-                'channel' => $record->channel,
-                'context' => $context ?: null,
-                'extra' => $extra ?: null,
-            ]);
+            $logPayload['trace_id'] = $this->traceContext->getTraceId();
+            $logPayload['span_id'] = $this->traceContext->getCurrentSpanId();
         }
 
         try {
-            $this->client->sendEventAsync($payload);
+            $this->client->sendLog($logPayload);
         } catch (\Throwable) {
             // Never break request lifecycle if remote logging fails.
         }

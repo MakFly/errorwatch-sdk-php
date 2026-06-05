@@ -447,8 +447,7 @@ class HttpTransport implements AsyncTransportInterface
     /**
      * Send multiple events by posting each to the single-event endpoint.
      *
-     * The monitoring server exposes /api/v1/event (single POST only).
-     * There is no batch endpoint, so we iterate and send individually.
+     * Send each event to /api/v1/envelope (Sentry-style rich payload).
      * Returns true only if every event was sent successfully.
      */
     public function sendBatch(array $events): bool
@@ -650,7 +649,7 @@ class HttpTransport implements AsyncTransportInterface
      */
     protected function getEventUrl(): string
     {
-        return $this->endpoint . '/api/v1/event';
+        return $this->endpoint . '/api/v1/envelope';
     }
 
     /**

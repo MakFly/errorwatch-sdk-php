@@ -86,9 +86,17 @@ class StacktraceBuilder
     }
 
     /**
-     * Read source lines around a given line number.
+     * Read source lines around a given line number (Sentry-compatible shape).
      *
-     * @return array{?string, ?array, ?array}  [contextLine, preContext, postContext]
+     * @return array{?string, ?array<int, string>, ?array<int, string>}  [contextLine, preContext, postContext]
+     */
+    public function sourceContextAt(string $filename, ?int $lineno): array
+    {
+        return $this->getSourceContext($filename, $lineno);
+    }
+
+    /**
+     * @return array{?string, ?array<int, string>, ?array<int, string>}
      */
     private function getSourceContext(string $filename, ?int $lineno): array
     {

@@ -607,9 +607,11 @@ class MonitoringClient
             'transport_mode' => $config['transport']['mode'] ?? 'async',
             'request_budget_ms' => $config['transport']['request_budget_ms'] ?? 50,
         ], array_filter([
-            'endpoint'    => $config['endpoint'] ?? null,
-            'api_key'     => $config['api_key'] ?? null,
-            'before_send' => $config['before_send'] ?? null,
+            'endpoint'     => $config['endpoint'] ?? null,
+            'api_key'      => $config['api_key'] ?? null,
+            'before_send'  => $config['before_send'] ?? null,
+            'project_root' => $config['project_root']
+                ?? (function_exists('base_path') ? base_path() : null),
         ]));
 
         return new SdkOptions($normalized);
