@@ -87,4 +87,75 @@ class ErrorWatchLoggerTest extends TestCase
         $context = (array) $spy->captured['context'];
         $this->assertSame(422, $context['status_code']);
     }
+
+    #[Test]
+    public function send_live_log_parses_http_status_from_legacy_message_format(): void
+    {
+        $captured = null;
+        $spy = new class($captured) extends \ErrorWatch\Laravel\Transport\HttpTransport {
+            public ?array $captured = null;
+            public function __construct(&$out)
+            {
+                parent::__construct('https://test.errorwatch.io', 'k');
+            }
+            public function sendLog(array $logEntry): bool
+            {
+                $this->captured = $logEntry;
+                return true;
+            }
+        };
+
+        $ref  = new \ReflectionProperty($this->client, 'transport');
+        $orig = $ref->getValue($this->client);
+        $ref->setValue($this->client, $spy);
+
+        try {
+            $logger = $this->makeLogger();
+            $sendLiveLog = new \ReflectionMethod($logger, 'sendLiveLog');
+            $message = "[RESPONSE][UNPROCESSABLE ENTITY] Status Code : 422 \n";
+            $sendLiveLog->invoke($logger, 'warning', $message, ['channel' => 'iapi']);
+        } finally {
+            $ref->setValue($this->client, $orig);
+        }
+
+        $this->assertNotNull($spy->captured);
+        $this->assertSame(422, $spy->captured['status_code']);
+        $this->assertSame('http', $spy->captured['source']);
+    }
+
+    #[Test]
+    public function send_live_log_prefers_explicit_monolog_context_over_message_parse(): void
+    {
+        $captured = null;
+        $spy = new class($captured) extends \ErrorWatch\Laravel\Transport\HttpTransport {
+            public ?array $captured = null;
+            public function __construct(&$out)
+            {
+                parent::__construct('https://test.errorwatch.io', 'k');
+            }
+            public function sendLog(array $logEntry): bool
+            {
+                $this->captured = $logEntry;
+                return true;
+            }
+        };
+
+        $ref  = new \ReflectionProperty($this->client, 'transport');
+        $orig = $ref->getValue($this->client);
+        $ref->setValue($this->client, $spy);
+
+        try {
+            $logger = $this->makeLogger();
+            $sendLiveLog = new \ReflectionMethod($logger, 'sendLiveLog');
+            $sendLiveLog->invoke($logger, 'warning', 'Status Code : 500', [
+                'channel' => 'iapi',
+                'context' => ['status_code' => 201, 'log_kind' => 'http_response'],
+            ]);
+        } finally {
+            $ref->setValue($this->client, $orig);
+        }
+
+        $this->assertSame(201, $spy->captured['status_code']);
+        $this->assertSame('http', $spy->captured['source']);
+    }
 }

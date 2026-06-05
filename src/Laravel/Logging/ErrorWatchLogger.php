@@ -172,18 +172,21 @@ class ErrorWatchLogger
 
         $requestContext = $this->client->getRequestContext();
         $logContext = $context['context'] ?? [];
-        if (!isset($logContext['status_code']) && $requestContext['status_code'] !== null) {
-            $logContext['status_code'] = $requestContext['status_code'];
+
+        $statusCode = $this->resolveHttpStatusCode($logContext, $requestContext['status_code'], $message);
+        if ($statusCode !== null) {
+            $logContext['status_code'] = $statusCode;
         }
 
-        $statusCode = $logContext['status_code'] ?? null;
+        $url = $context['url'] ?? $requestContext['url'] ?? null;
+        $source = $context['source'] ?? $this->inferLogSource($logContext, $message, $statusCode, $url);
 
         $logEntry = [
             'level' => $level,
             'message' => $message,
             'timestamp' => microtime(true),
             'channel' => $context['channel'] ?? 'application',
-            'url' => $context['url'] ?? $requestContext['url'],
+            'url' => $url,
             'context' => (object) $logContext,
             'extra' => (object) ($context['extra'] ?? []),
         ];
@@ -192,7 +195,88 @@ class ErrorWatchLogger
             $logEntry['status_code'] = $statusCode;
         }
 
+        if ($source !== null) {
+            $logEntry['source'] = $source;
+        }
+
+        $transaction = $this->client->getCurrentTransaction();
+        if ($transaction !== null) {
+            $logEntry['trace_id'] = $transaction->getTraceId();
+            $logEntry['span_id'] = $transaction->getSpanId();
+        }
+
         $this->client->deliverLog($logEntry);
+    }
+
+    /**
+     * Resolve HTTP status for a live log: Monolog context first, then the SDK
+     * request scope (post-response middleware snapshot), then a message fallback
+     * for legacy request/response log formatters that embed the code in text.
+     *
+     * @param array<string, mixed> $logContext
+     */
+    protected function resolveHttpStatusCode(array $logContext, ?int $scopeStatusCode, string $message): ?int
+    {
+        if (isset($logContext['status_code'])) {
+            $fromContext = $this->coerceHttpStatusCode($logContext['status_code']);
+            if ($fromContext !== null) {
+                return $fromContext;
+            }
+        }
+
+        if ($scopeStatusCode !== null) {
+            return $scopeStatusCode;
+        }
+
+        return $this->extractHttpStatusFromMessage($message);
+    }
+
+    /**
+     * @param array<string, mixed> $logContext
+     */
+    protected function inferLogSource(array $logContext, string $message, ?int $statusCode, ?string $url): ?string
+    {
+        $kind = $logContext['log_kind'] ?? null;
+        if (in_array($kind, ['http_request', 'http_response'], true)) {
+            return 'http';
+        }
+
+        if (str_contains($message, '[RESPONSE]') || str_contains($message, '[REQUEST]')) {
+            return 'http';
+        }
+
+        if ($statusCode !== null && $url !== null) {
+            return 'http';
+        }
+
+        return null;
+    }
+
+    protected function coerceHttpStatusCode(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return ($value >= 100 && $value <= 599) ? $value : null;
+        }
+
+        if (is_string($value) && preg_match('/^[0-9]{3}$/', trim($value))) {
+            $code = (int) trim($value);
+            return ($code >= 100 && $code <= 599) ? $code : null;
+        }
+
+        return null;
+    }
+
+    protected function extractHttpStatusFromMessage(string $message): ?int
+    {
+        if (preg_match('/Status Code\s*:\s*(?<code>[0-9]{3})\b/i', $message, $matches)) {
+            return $this->coerceHttpStatusCode($matches['code']);
+        }
+
+        if (preg_match('/\bHTTP\s+(?<code>[0-9]{3})\b/i', $message, $matches)) {
+            return $this->coerceHttpStatusCode($matches['code']);
+        }
+
+        return null;
     }
 
     /**
