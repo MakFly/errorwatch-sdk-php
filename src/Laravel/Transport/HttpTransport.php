@@ -42,6 +42,8 @@ class HttpTransport implements AsyncTransportInterface
     private bool  $batchMode   = false;
     /** @var array<int, array{type: string, payload: array}> */
     private array $batchBuffer = [];
+    /** Ingestion protocol: "envelope" (default) or "flare" (POST /api/v1/errors). */
+    private string $protocol   = 'envelope';
 
     public function __construct(
         string $endpoint,
@@ -53,10 +55,12 @@ class HttpTransport implements AsyncTransportInterface
         int    $requestBudgetMs   = 50,
         ?RequestBudget $budget    = null,
         ?TransportMetrics $metrics = null,
+        string $protocol          = 'envelope',
     ) {
         $this->endpoint = rtrim($endpoint, '/');
         $this->apiKey   = $apiKey;
         $this->timeout  = $timeout;
+        $this->protocol = $protocol;
 
         $this->client = new Client([
             'timeout'         => $timeout,
@@ -225,7 +229,9 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function send(array $payload): bool
     {
-        if ($this->batchMode) {
+        // Flare error events go straight to /api/v1/errors — the mixed /batch
+        // endpoint only understands envelope-shaped events.
+        if ($this->batchMode && $this->protocol !== 'flare') {
             $this->accumulate('event', $payload);
             return true;
         }
@@ -327,7 +333,7 @@ class HttpTransport implements AsyncTransportInterface
      */
     public function sendAsync(array $payload): void
     {
-        if ($this->batchMode) {
+        if ($this->batchMode && $this->protocol !== 'flare') {
             $this->accumulate('event', $payload);
             return;
         }
@@ -649,6 +655,9 @@ class HttpTransport implements AsyncTransportInterface
      */
     protected function getEventUrl(): string
     {
+        if ($this->protocol === 'flare') {
+            return $this->endpoint . '/api/v1/errors';
+        }
         return $this->endpoint . '/api/v1/envelope';
     }
 

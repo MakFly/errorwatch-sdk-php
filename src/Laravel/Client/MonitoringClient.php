@@ -65,6 +65,7 @@ class MonitoringClient
             $config['transport']['circuit_breaker_cooldown'] ?? 30,
             $config['transport']['retry_attempts'] ?? 2,
             $config['transport']['request_budget_ms'] ?? 50,
+            protocol: $config['protocol'] ?? 'envelope',
         );
 
         $this->breadcrumbs = new BreadcrumbManager(
@@ -606,6 +607,7 @@ class MonitoringClient
             'timeout'        => $config['transport']['timeout'] ?? 5,
             'transport_mode' => $config['transport']['mode'] ?? 'async',
             'request_budget_ms' => $config['transport']['request_budget_ms'] ?? 50,
+            'protocol'       => $config['protocol'] ?? 'envelope',
         ], array_filter([
             'endpoint'     => $config['endpoint'] ?? null,
             'api_key'      => $config['api_key'] ?? null,

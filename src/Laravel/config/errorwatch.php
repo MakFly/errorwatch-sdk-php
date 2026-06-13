@@ -19,6 +19,11 @@ return [
     'environment' => env('APP_ENV', 'production'),
     'release' => env('APP_VERSION'),
 
+    // Ingestion protocol for error events:
+    //   - 'envelope' → Sentry-style payload, POST /api/v1/envelope (default)
+    //   - 'flare'    → flat-attribute Flare protocol, POST /api/v1/errors
+    'protocol' => env('ERRORWATCH_PROTOCOL', 'envelope'),
+
     // Transport/resilience configuration
     'transport' => [
         // Delivery mode for events / transactions / logs:
