@@ -40,6 +40,8 @@ class Client
                 null,
                 null,
                 new Transport\RequestBudget($options->getRequestBudgetMs()),
+                null,
+                eventPath: $options->getProtocol() === 'flare' ? '/api/v1/errors' : '/api/v1/envelope',
             );
         }
     }
@@ -198,6 +200,14 @@ class Client
             }
 
             $eventId = $payload['event_id'] ?? $event->getEventId();
+
+            // Flare protocol: translate the envelope payload into the flat
+            // Flare error shape before handing it to the transport (which is
+            // already pointed at /api/v1/errors). beforeSend still operates on
+            // the envelope shape above, keeping that hook contract stable.
+            if ($this->options->getProtocol() === 'flare') {
+                $payload = \ErrorWatch\Sdk\Flare\FlareSerializer::fromEnvelope($payload);
+            }
 
             // Default delivery is non-blocking: a fire-and-forget Guzzle
             // promise is scheduled and drained at PHP shutdown / kernel

@@ -20,6 +20,7 @@ class Options
     private readonly int     $timeout;
     private readonly string  $transportMode;
     private readonly int     $requestBudgetMs;
+    private readonly string  $protocol;
 
     public function __construct(array $config)
     {
@@ -49,6 +50,11 @@ class Options
         $this->requestBudgetMs = (int) ($config['request_budget_ms']
             ?? $config['transport']['request_budget_ms']
             ?? 50);
+
+        // Wire protocol: "envelope" (Sentry-style, default) or "flare"
+        // (flat-attribute Flare error protocol, POST /api/v1/errors).
+        $protocol = strtolower((string) ($config['protocol'] ?? 'envelope'));
+        $this->protocol = in_array($protocol, ['envelope', 'flare'], true) ? $protocol : 'envelope';
     }
 
     public function getEndpoint(): string
@@ -123,5 +129,14 @@ class Options
     public function getRequestBudgetMs(): int
     {
         return $this->requestBudgetMs;
+    }
+
+    /**
+     * Ingestion protocol: "envelope" (Sentry-style /api/v1/envelope) or
+     * "flare" (flat-attribute Flare protocol /api/v1/errors).
+     */
+    public function getProtocol(): string
+    {
+        return $this->protocol;
     }
 }

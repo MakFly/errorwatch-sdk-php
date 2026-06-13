@@ -34,12 +34,13 @@ class HttpTransport implements AsyncTransportInterface
         ?Client                  $client  = null,
         ?RequestBudget           $budget  = null,
         ?TransportMetrics        $metrics = null,
+        string                   $eventPath = '/api/v1/envelope',
     ) {
         $this->logger   = $logger ?? new NullLogger();
         // /api/v1/envelope accepts the rich Sentry-style payload produced
-        // by Sdk\Event::toPayload(). Legacy /api/v1/event remains for flat
-        // (file/line/stack) payloads emitted by other integrations.
-        $this->eventUrl = rtrim($endpoint, '/') . '/api/v1/envelope';
+        // by Sdk\Event::toPayload(). The Flare protocol path (/api/v1/errors)
+        // is selected via the $eventPath override (Options::getProtocol()).
+        $this->eventUrl = rtrim($endpoint, '/') . $eventPath;
         $this->client   = $client ?? new Client([
             'timeout'         => $timeout,
             'connect_timeout' => self::HOT_PATH_CONNECT_TIMEOUT_S,
