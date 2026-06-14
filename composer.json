@@ -79,6 +79,8 @@
     },
     "scripts": {
         "test": "phpunit",
+        "test:laravel-profiler": "phpunit --testsuite laravel --filter RequestProfileTest",
+        "test:laravel-middleware": "phpunit --testsuite laravel --filter MiddlewareTest",
         "test:coverage": "phpunit --coverage-html coverage",
         "post-install-cmd": "ErrorWatch\\Sdk\\Composer\\SymfonyBundleInstaller::postInstall",
         "post-update-cmd": "ErrorWatch\\Sdk\\Composer\\SymfonyBundleInstaller::postInstall"

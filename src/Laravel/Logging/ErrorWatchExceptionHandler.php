@@ -34,6 +34,11 @@ class ErrorWatchExceptionHandler implements ExceptionHandler
                 if (app('config')->get('errorwatch.profiler.enabled', false) && app()->bound(RequestProfile::class)) {
                     $profile = app(RequestProfile::class);
                     if ($profile->isStarted()) {
+                        try {
+                            $profile->refresh(request());
+                        } catch (\Throwable) {
+                            // Keep the exception report path safe.
+                        }
                         $context['profile'] = $profile->toArray($e, $context['status_code'] ?? null);
                     }
                 }

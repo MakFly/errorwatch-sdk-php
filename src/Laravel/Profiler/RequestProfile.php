@@ -6,6 +6,7 @@ namespace ErrorWatch\Laravel\Profiler;
 
 use ErrorWatch\Sdk\Profiler\RequestProfile as SharedRequestProfile;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Laravel-flavoured request profile bag.
@@ -24,6 +25,18 @@ final class RequestProfile extends SharedRequestProfile
         $this->startWithSnapshot(
             $this->snapshotRequest($request),
             $this->snapshotRoute($request),
+        );
+    }
+
+    /**
+     * Refresh the Laravel request/route snapshot without dropping collectors.
+     */
+    public function refresh(Request $request, ?Response $response = null): void
+    {
+        $this->refreshSnapshot(
+            $this->snapshotRequest($request),
+            $this->snapshotRoute($request),
+            $response?->getStatusCode(),
         );
     }
 
@@ -56,18 +69,21 @@ final class RequestProfile extends SharedRequestProfile
 
     private function snapshotRoute(Request $request): ?array
     {
-        $route = $request->route();
+        $route = $request->route() ?? \Illuminate\Support\Facades\Route::current();
         if ($route === null) {
             return null;
         }
 
         try {
             $action = $route->getAction();
+            $uses = $action['uses'] ?? null;
+            $controller = $action['controller'] ?? null;
+
             return [
                 'uri' => $route->uri(),
                 'name' => $route->getName(),
-                'action' => $action['uses'] ?? null,
-                'controller' => $action['controller'] ?? null,
+                'action' => self::stringifyRouteAction($uses),
+                'controller' => self::stringifyRouteAction($controller),
                 'middleware' => array_values($route->gatherMiddleware()),
                 'parameters' => self::scrubSensitiveKeys($route->parameters()),
                 'methods' => $route->methods(),
@@ -78,5 +94,30 @@ final class RequestProfile extends SharedRequestProfile
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private static function stringifyRouteAction(mixed $action): ?string
+    {
+        if ($action === null) {
+            return null;
+        }
+
+        if ($action instanceof \Closure) {
+            return 'Closure';
+        }
+
+        if (is_string($action)) {
+            return $action;
+        }
+
+        if (is_object($action)) {
+            return $action::class;
+        }
+
+        if (is_scalar($action)) {
+            return (string) $action;
+        }
+
+        return null;
     }
 }

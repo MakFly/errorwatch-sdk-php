@@ -140,6 +140,10 @@ class ErrorWatchLogger
                 && app()->bound(RequestProfile::class)) {
                 $profile = app(RequestProfile::class);
                 if ($profile->isStarted()) {
+                    try {
+                        $profile->refresh(request());
+                    } catch (\Throwable) {
+                    }
                     $formattedContext['profile'] = $profile->toArray();
                 }
             }
@@ -217,11 +221,9 @@ class ErrorWatchLogger
      */
     protected function resolveHttpStatusCode(array $logContext, ?int $scopeStatusCode, string $message): ?int
     {
-        if (isset($logContext['status_code'])) {
-            $fromContext = $this->coerceHttpStatusCode($logContext['status_code']);
-            if ($fromContext !== null) {
-                return $fromContext;
-            }
+        $fromContext = $this->resolveStatusCodeFromContext($logContext);
+        if ($fromContext !== null) {
+            return $fromContext;
         }
 
         if ($scopeStatusCode !== null) {
@@ -264,6 +266,59 @@ class ErrorWatchLogger
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $logContext
+     */
+    protected function resolveStatusCodeFromContext(array $logContext): ?int
+    {
+        $statusPaths = [
+            ['status_code'],
+            ['statusCode'],
+            ['status'],
+            ['http_status_code'],
+            ['response_status_code'],
+            ['http.status_code'],
+            ['response.status_code'],
+            ['http', 'status_code'],
+            ['response', 'status_code'],
+            ['tags', 'status_code'],
+            ['tags', 'statusCode'],
+            ['tags', 'http.status_code'],
+            ['tags', 'response.status_code'],
+            ['tags', 'http_status_code'],
+            ['tags', 'response_status_code'],
+        ];
+
+        foreach ($statusPaths as $path) {
+            $value = $this->valueAtPath($logContext, $path);
+            $statusCode = $this->coerceHttpStatusCode($value);
+            if ($statusCode !== null) {
+                return $statusCode;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $subject
+     * @param array<int, string> $path
+     */
+    protected function valueAtPath(array $subject, array $path): mixed
+    {
+        $current = $subject;
+
+        foreach ($path as $segment) {
+            if (!is_array($current) || !array_key_exists($segment, $current)) {
+                return null;
+            }
+
+            $current = $current[$segment];
+        }
+
+        return $current;
     }
 
     protected function extractHttpStatusFromMessage(string $message): ?int

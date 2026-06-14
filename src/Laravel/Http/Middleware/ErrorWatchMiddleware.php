@@ -91,6 +91,12 @@ class ErrorWatchMiddleware
             // Do NOT capture the exception here — ErrorWatchExceptionHandler::report() handles it.
             // This prevents double-capture when both middleware and handler are active.
 
+            // Route and auth are often only available after downstream Laravel
+            // middleware has run. Refresh the profile before Laravel's exception
+            // handler reads it so captured exceptions carry real routing/user
+            // metadata instead of the early global-middleware snapshot.
+            $this->refreshResolvedContext($request);
+
             // Finish transaction with error status
             if ($this->apmEnabled) {
                 $transaction = $this->client->getCurrentTransaction();
@@ -105,6 +111,10 @@ class ErrorWatchMiddleware
         // Bubble the response status back into the SDK scope so events
         // emitted during terminate() (or async tail) tag the correct code.
         try {
+            if ($this->client->getConfig('user_context.enabled', true) && $request->user()) {
+                $this->setUserFromRequest($request);
+            }
+
             $this->client->setRequestContext([
                 'url' => $request->fullUrl(),
                 'method' => $request->method(),
@@ -113,6 +123,8 @@ class ErrorWatchMiddleware
         } catch (\Throwable) {
             // never break the response
         }
+
+        $this->refreshResolvedContext($request, $response);
 
         return $response;
     }
@@ -212,5 +224,26 @@ class ErrorWatchMiddleware
         }
 
         $this->client->setUser($userData);
+    }
+
+    protected function refreshResolvedContext(Request $request, ?Response $response = null): void
+    {
+        try {
+            if ($this->client->getConfig('user_context.enabled', true) && $request->user()) {
+                $this->setUserFromRequest($request);
+            }
+        } catch (\Throwable) {
+            // never break the request
+        }
+
+        if (!$this->client->getConfig('profiler.enabled', false)) {
+            return;
+        }
+
+        try {
+            app(RequestProfile::class)->refresh($request, $response);
+        } catch (\Throwable) {
+            // never break the request
+        }
     }
 }

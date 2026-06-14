@@ -66,6 +66,11 @@ final class LogStreamHandler extends AbstractProcessingHandler
             $payload['extra'] = $extra;
         }
 
+        $statusCode = $this->extractStatusCode($context, $extra);
+        if ($statusCode !== null) {
+            $payload['status_code'] = $statusCode;
+        }
+
         if (null !== $this->traceContext && $this->traceContext->hasContext()) {
             $payload['trace_id'] = $this->traceContext->getTraceId();
             $payload['span_id'] = $this->traceContext->getCurrentSpanId();
@@ -131,5 +136,79 @@ final class LogStreamHandler extends AbstractProcessingHandler
         }
 
         return $normalized;
+    }
+
+    private function extractStatusCode(array $context, array $extra): ?int
+    {
+        $statusPaths = [
+            ['status_code'],
+            ['statusCode'],
+            ['http_status_code'],
+            ['http.status_code'],
+            ['response_status_code'],
+            ['response.status_code'],
+            ['http', 'status_code'],
+            ['response', 'status_code'],
+            ['tags', 'status_code'],
+            ['tags', 'statusCode'],
+            ['tags', 'http.status_code'],
+            ['tags', 'response.status_code'],
+            ['tags', 'http_status_code'],
+            ['tags', 'response_status_code'],
+            ['context', 'status_code'],
+            ['context', 'statusCode'],
+            ['context', 'http.status_code'],
+            ['context', 'response.status_code'],
+            ['extra', 'status_code'],
+            ['extra', 'statusCode'],
+            ['extra', 'http.status_code'],
+            ['extra', 'response.status_code'],
+        ];
+
+        $sources = [$context, $extra];
+        foreach ($sources as $source) {
+            foreach ($statusPaths as $path) {
+                $value = $this->valueAtPath($source, $path);
+                $statusCode = $this->coerceHttpStatusCode($value);
+                if ($statusCode !== null) {
+                    return $statusCode;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $subject
+     * @param array<int, string> $path
+     */
+    private function valueAtPath(array $subject, array $path): mixed
+    {
+        $current = $subject;
+
+        foreach ($path as $segment) {
+            if (!is_array($current) || !array_key_exists($segment, $current)) {
+                return null;
+            }
+
+            $current = $current[$segment];
+        }
+
+        return $current;
+    }
+
+    private function coerceHttpStatusCode(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return ($value >= 100 && $value <= 599) ? $value : null;
+        }
+
+        if (is_string($value) && preg_match('/^[0-9]{3}$/', trim($value))) {
+            $code = (int) trim($value);
+            return ($code >= 100 && $code <= 599) ? $code : null;
+        }
+
+        return null;
     }
 }

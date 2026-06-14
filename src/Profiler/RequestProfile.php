@@ -42,6 +42,7 @@ class RequestProfile
 
     private ?array $request = null;
     private ?array $route = null;
+    private ?int $statusCode = null;
 
     /** @var array<int, array<string, mixed>> */
     private array $queries = [];
@@ -104,6 +105,30 @@ class RequestProfile
         $this->startedAt = $startedAt ?? (defined('LARAVEL_START') ? LARAVEL_START : microtime(true));
         $this->request = $requestSnapshot;
         $this->route = $routeSnapshot;
+        $this->statusCode = null;
+    }
+
+    /**
+     * Refresh request metadata without resetting already collected profiler data.
+     *
+     * Framework adapters call this late in the HTTP lifecycle, once routing,
+     * authentication and the response status are available.
+     *
+     * @param array<string, mixed>|null $requestSnapshot
+     * @param array<string, mixed>|null $routeSnapshot
+     */
+    public function refreshSnapshot(?array $requestSnapshot, ?array $routeSnapshot, ?int $statusCode = null): void
+    {
+        if (!$this->started) {
+            return;
+        }
+
+        $this->request = $requestSnapshot ?? $this->request;
+        $this->route = $routeSnapshot ?? $this->route;
+
+        if ($statusCode !== null) {
+            $this->statusCode = $statusCode;
+        }
     }
 
     public function isStarted(): bool
@@ -126,6 +151,7 @@ class RequestProfile
         $this->startedAt = 0.0;
         $this->request = null;
         $this->route = null;
+        $this->statusCode = null;
         $this->queries = [];
         $this->queriesTotalMs = 0.0;
         $this->queriesSlow = 0;
@@ -309,6 +335,7 @@ class RequestProfile
         $durationMs = $this->startedAt > 0 ? ($now - $this->startedAt) * 1000.0 : 0.0;
 
         $resolvedStatus = $statusCode
+            ?? $this->statusCode
             ?? ($throwable instanceof HttpExceptionInterface ? $throwable->getStatusCode() : 500);
 
         $totalCacheOps = $this->cacheHits + $this->cacheMisses + $this->cacheWrites + $this->cacheDeletes;

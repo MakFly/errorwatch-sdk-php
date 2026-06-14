@@ -300,8 +300,12 @@ class MonitoringClient
         $event = array_merge([
             'timestamp' => microtime(true),
             'environment' => $this->config['environment'] ?? 'production',
+            'release' => $this->config['release'] ?? null,
+            'server_name' => $this->config['server_name'] ?? gethostname() ?: 'unknown',
             'breadcrumbs' => $this->formatBreadcrumbsForApi(),
             'user' => $this->userContext->getUser(),
+            'tags' => $this->applicationTags(),
+            'extra' => $this->applicationExtras(),
         ], $event);
 
         // Route through the mode-aware delegate so `queue` mode dispatches a
@@ -391,6 +395,8 @@ class MonitoringClient
             $scope->setStatusCode(null);
             $scope->removeTag('http.status_code');
         }
+
+        $this->syncApplicationContextToScope($scope);
     }
 
     /**
@@ -602,6 +608,7 @@ class MonitoringClient
             'enabled'        => $config['enabled'] ?? true,
             'environment'    => $config['environment'] ?? 'production',
             'release'        => $config['release'] ?? null,
+            'server_name'    => $config['server_name'] ?? gethostname() ?: 'unknown',
             'sample_rate'    => $config['sample_rate'] ?? 1.0,
             'max_breadcrumbs' => $config['breadcrumbs']['max_count'] ?? 100,
             'timeout'        => $config['transport']['timeout'] ?? 5,
@@ -669,6 +676,75 @@ class MonitoringClient
                 $scope->addBreadcrumb($crumb);
             }
         }
+
+        $this->syncApplicationContextToScope($scope);
+    }
+
+    private function syncApplicationContextToScope(\ErrorWatch\Sdk\Scope $scope): void
+    {
+        $tags = $this->applicationTags();
+        if (!empty($tags)) {
+            $scope->setTags($tags);
+        }
+
+        $extra = $this->applicationExtras();
+        if (!empty($extra)) {
+            $scope->setExtras($extra);
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function applicationTags(): array
+    {
+        $tags = [];
+
+        $environment = $this->config['environment'] ?? null;
+        if (is_scalar($environment) && (string) $environment !== '') {
+            $tags['app.environment'] = (string) $environment;
+        }
+
+        $release = $this->config['release'] ?? null;
+        if (is_scalar($release) && (string) $release !== '') {
+            $tags['release'] = (string) $release;
+        }
+
+        $git = is_array($this->config['git'] ?? null) ? $this->config['git'] : [];
+        foreach (['commit', 'branch', 'dirty'] as $key) {
+            $value = $git[$key] ?? null;
+            if (is_scalar($value) && (string) $value !== '') {
+                $tags["git.{$key}"] = (string) $value;
+                $tags[$key] = (string) $value;
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function applicationExtras(): array
+    {
+        $extra = [
+            'application' => array_filter([
+                'environment' => $this->config['environment'] ?? null,
+                'release' => $this->config['release'] ?? null,
+                'server_name' => $this->config['server_name'] ?? gethostname() ?: 'unknown',
+            ], static fn ($value) => $value !== null && $value !== ''),
+        ];
+
+        $git = is_array($this->config['git'] ?? null) ? array_filter(
+            $this->config['git'],
+            static fn ($value) => $value !== null && $value !== ''
+        ) : [];
+
+        if (!empty($git)) {
+            $extra['git'] = $git;
+        }
+
+        return array_filter($extra, static fn ($value) => !empty($value));
     }
 
     /**

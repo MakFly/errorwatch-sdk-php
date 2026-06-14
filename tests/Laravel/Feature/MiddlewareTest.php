@@ -3,8 +3,11 @@
 namespace ErrorWatch\Laravel\Tests\Feature;
 
 use ErrorWatch\Laravel\Tests\TestCase;
+use ErrorWatch\Laravel\Client\MonitoringClient;
+use ErrorWatch\Laravel\Profiler\RequestProfile;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Routing\Route;
 use ErrorWatch\Laravel\Http\Middleware\ErrorWatchMiddleware;
 use ErrorWatch\Laravel\Facades\ErrorWatch;
 use RuntimeException;
@@ -137,5 +140,78 @@ class MiddlewareTest extends TestCase
 
         // The excluded route should have been skipped — no breadcrumbs added by the middleware
         $this->assertEmpty($clientWithExclusion->getBreadcrumbs());
+    }
+
+    #[Test]
+    public function it_refreshes_profiler_with_resolved_api_route_response_status_and_user(): void
+    {
+        app(RequestProfile::class)->reset();
+
+        $clientWithProfiler = new MonitoringClient(array_merge(config('errorwatch'), [
+            'profiler' => array_merge(config('errorwatch.profiler'), [
+                'enabled' => true,
+            ]),
+            'environment' => 'testing',
+            'release' => '1.2.3',
+            'server_name' => 'phpunit-host',
+            'git' => [
+                'commit' => 'abc1234',
+                'branch' => 'feature/profiler',
+                'dirty' => 'false',
+            ],
+        ]));
+
+        $middleware = new ErrorWatchMiddleware($clientWithProfiler);
+        $request = Request::create('/api/packages/distrib-app?tab=issues', 'GET', [], [
+            'spatie_session' => 'secret-cookie-value',
+        ], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer secret',
+            'HTTP_COOKIE' => 'spatie_session=secret-cookie-value',
+            'HTTP_USER_AGENT' => 'Mozilla/5.0 PHPUnit Browser',
+        ]);
+
+        $user = new class {
+            public function getAuthIdentifier() { return 123; }
+            public $email = 'profiler@example.com';
+            public $name = 'Profiler User';
+        };
+
+        $response = $middleware->handle($request, function (Request $req) use ($user) {
+            $route = new Route(['GET'], 'api/packages/{package}', [
+                'uses' => 'App\\Http\\Controllers\\PackageController@show',
+                'controller' => 'App\\Http\\Controllers\\PackageController@show',
+                'as' => 'api.packages.show',
+                'middleware' => ['api', 'auth:sanctum'],
+            ]);
+            $route->bind($req);
+
+            $req->setRouteResolver(static fn () => $route);
+            $req->setUserResolver(static fn () => $user);
+
+            return new Response('OK', 202);
+        });
+
+        $payload = app(RequestProfile::class)->toArray();
+        $userContext = $clientWithProfiler->getUser();
+        $scope = $clientWithProfiler->getSdkClient()->getScope();
+
+        $this->assertSame(202, $response->getStatusCode());
+        $this->assertSame(202, $payload['status_code']);
+        $this->assertSame('api.packages.show', $payload['route']['name']);
+        $this->assertSame('App\\Http\\Controllers\\PackageController@show', $payload['route']['action']);
+        $this->assertContains('auth:sanctum', $payload['route']['middleware']);
+        $this->assertSame(['distrib-app'], array_values($payload['route']['parameters']));
+        $this->assertSame('Mozilla/5.0 PHPUnit Browser', $payload['request']['headers']['user-agent'][0] ?? null);
+        $this->assertArrayNotHasKey('authorization', $payload['request']['headers']);
+        $this->assertArrayNotHasKey('cookie', $payload['request']['headers']);
+        $this->assertSame(['spatie_session'], $payload['request']['cookies']);
+        $this->assertNull($payload['request']['session']);
+        $this->assertSame(0, $payload['views']['total_count']);
+        $this->assertSame(123, $userContext['id']);
+        $this->assertSame('profiler@example.com', $userContext['email']);
+        $this->assertSame('1.2.3', $scope->getTags()['release'] ?? null);
+        $this->assertSame('abc1234', $scope->getTags()['commit'] ?? null);
+        $this->assertSame('feature/profiler', $scope->getTags()['branch'] ?? null);
+        $this->assertSame('phpunit-host', $scope->getExtras()['application']['server_name'] ?? null);
     }
 }
