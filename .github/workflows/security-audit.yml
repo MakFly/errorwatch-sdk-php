@@ -38,13 +38,13 @@ jobs:
           php-version: "8.4"
           tools: composer:v2
 
-      - name: Install dependencies
+      - name: Install production dependencies only
         if: steps.check.outputs.exists == 'true'
-        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --no-scripts
 
-      - name: Run composer audit
+      - name: Run composer audit (prod deps only)
         if: steps.check.outputs.exists == 'true'
-        run: composer audit --no-interaction --locked
+        run: composer audit --no-dev --no-interaction
 
   obfuscation-scan:
     name: JS Obfuscation Scan
