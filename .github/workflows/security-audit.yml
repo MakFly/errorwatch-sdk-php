@@ -1,0 +1,70 @@
+name: Security Audit (Daily)
+
+on:
+  schedule:
+    # 03h00 Paris = 01h00 UTC
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "composer.json"
+      - "composer.lock"
+      - "package.json"
+      - "package-lock.json"
+      - "bun.lock"
+      - "yarn.lock"
+      - "pnpm-lock.yaml"
+      - "requirements*.txt"
+      - "poetry.lock"
+
+permissions:
+  contents: read
+
+jobs:
+  composer-audit:
+    name: Composer Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check for composer.json
+        id: check
+        run: test -f composer.json && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: Setup PHP
+        if: steps.check.outputs.exists == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer:v2
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+
+      - name: Run composer audit
+        if: steps.check.outputs.exists == 'true'
+        run: composer audit --no-interaction --locked
+
+  obfuscation-scan:
+    name: JS Obfuscation Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Scan for obfuscated JS in config files
+        run: |
+          FOUND=0
+          for f in $(find . -maxdepth 2 -name "*.config.js" -o -name "*.config.mjs" -o -name "*.config.cjs" -o -name ".eslintrc.js" -o -name ".prettierrc.js" | grep -v node_modules); do
+            MAX_LINE=$(awk '{ if (length > max) max = length } END { print max }' "$f")
+            if [ "${MAX_LINE:-0}" -gt 500 ]; then
+              echo "::error file=$f::Line longer than 500 chars — possible obfuscated payload"
+              FOUND=1
+            fi
+            if grep -qP 'global\[|_\$_[0-9a-f]' "$f" 2>/dev/null; then
+              echo "::error file=$f::Suspicious obfuscation pattern detected"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then exit 1; fi
+          echo "All config files clean"
