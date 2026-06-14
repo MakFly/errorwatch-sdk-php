@@ -46,7 +46,7 @@ final class ConfigurationTest extends TestCase
 
         // User context defaults
         $this->assertTrue($config['user_context']['enabled']);
-        $this->assertTrue($config['user_context']['capture_ip']);
+        $this->assertFalse($config['user_context']['capture_ip']);
 
         // Console defaults
         $this->assertTrue($config['console']['enabled']);

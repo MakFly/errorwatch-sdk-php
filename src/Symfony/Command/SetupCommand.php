@@ -41,7 +41,7 @@ error_watch:
 
     user_context:
         enabled: true
-        capture_ip: true
+        capture_ip: false
 
     console:
         enabled: true

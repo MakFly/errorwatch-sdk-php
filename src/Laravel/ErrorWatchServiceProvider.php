@@ -289,9 +289,9 @@ class ErrorWatchServiceProvider extends ServiceProvider
             return "<?php
             \$__ewSampleRate = (float) config('errorwatch.replay.sample_rate', 0.1);
             \$__ewEndpoint = htmlspecialchars(config('errorwatch.endpoint', ''), ENT_QUOTES, 'UTF-8');
-            \$__ewApiKey = htmlspecialchars(config('errorwatch.api_key', ''), ENT_QUOTES, 'UTF-8');
-            if (mt_rand(1, 100) <= (\$__ewSampleRate * 100)) {
-                echo '<script src=\"' . \$__ewEndpoint . '/replay.js\" data-api-key=\"' . \$__ewApiKey . '\"></script>';
+            \$__ewPublicKey = htmlspecialchars(hash('sha256', config('errorwatch.api_key', '') . ':replay-public'), ENT_QUOTES, 'UTF-8');
+            if (random_int(1, 100) <= (\$__ewSampleRate * 100)) {
+                echo '<script src=\"' . \$__ewEndpoint . '/replay.js\" data-api-key=\"' . \$__ewPublicKey . '\"></script>';
             }
         ?>";
         });

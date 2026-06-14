@@ -119,16 +119,16 @@ class StacktraceBuilder
                 return [null, null, null];
             }
 
-            $contextLine = $lines[$index];
+            $contextLine = $this->scrubLine($lines[$index]);
 
             $preStart  = max(0, $index - $this->contextLines);
             $postEnd   = min(count($lines) - 1, $index + $this->contextLines);
 
             $preContext  = $index > 0
-                ? array_slice($lines, $preStart, $index - $preStart)
+                ? array_map([$this, 'scrubLine'], array_slice($lines, $preStart, $index - $preStart))
                 : null;
             $postContext = $index < count($lines) - 1
-                ? array_slice($lines, $index + 1, $postEnd - $index)
+                ? array_map([$this, 'scrubLine'], array_slice($lines, $index + 1, $postEnd - $index))
                 : null;
 
             return [
@@ -139,6 +139,15 @@ class StacktraceBuilder
         } catch (\Throwable) {
             return [null, null, null];
         }
+    }
+
+    private function scrubLine(string $line): string
+    {
+        return preg_replace(
+            '/(?<=[\'"=:>\s])(password|secret|token|api_key|apikey|access_key|private_key|credential|authorization)(\s*[=:>\'"]+\s*).+/i',
+            '$1$2[REDACTED]',
+            $line
+        );
     }
 
     private function formatFunction(array $entry): ?string

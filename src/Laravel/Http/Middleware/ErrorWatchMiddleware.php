@@ -219,7 +219,7 @@ class ErrorWatchMiddleware
         }
 
         // Add IP address if configured
-        if ($this->client->getConfig('user_context.capture_ip', true)) {
+        if ($this->client->getConfig('user_context.capture_ip', false)) {
             $userData['ip_address'] = $request->ip();
         }
 

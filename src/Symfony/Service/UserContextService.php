@@ -20,7 +20,7 @@ final class UserContextService
     public function __construct(
         private readonly ?Security $security,
         private readonly RequestStack $requestStack,
-        bool $captureIp = true,
+        bool $captureIp = false,
     ) {
         $this->captureIp = $captureIp;
     }

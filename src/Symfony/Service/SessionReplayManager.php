@@ -141,7 +141,7 @@ class SessionReplayManager
             'enabled' => $this->enabled,
             'debug' => $this->debug,
             'endpoint' => rtrim($this->endpoint, '/'),
-            'apiKey' => $this->apiKey,
+            'apiKey' => $this->getPublicKey(),
             'sessionId' => $this->getSessionId(),
             'sampleRate' => $this->sampleRate,
             'release' => $this->release,
@@ -160,24 +160,23 @@ class SessionReplayManager
             return false;
         }
 
-        return (mt_rand(1, 10000) / 10000) <= $this->sampleRate;
+        return (random_int(1, 10000) / 10000) <= $this->sampleRate;
     }
 
     /**
      * Generate a UUID v4.
      */
+    private function getPublicKey(): string
+    {
+        return hash('sha256', $this->apiKey . ':replay-public');
+    }
+
     private function generateUuid(): string
     {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xFFFF),
-            mt_rand(0, 0xFFFF),
-            mt_rand(0, 0xFFFF),
-            mt_rand(0, 0x0FFF) | 0x4000,
-            mt_rand(0, 0x3FFF) | 0x8000,
-            mt_rand(0, 0xFFFF),
-            mt_rand(0, 0xFFFF),
-            mt_rand(0, 0xFFFF)
-        );
+        $bytes = random_bytes(16);
+        $bytes[6] = chr(ord($bytes[6]) & 0x0F | 0x40);
+        $bytes[8] = chr(ord($bytes[8]) & 0x3F | 0x80);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 }

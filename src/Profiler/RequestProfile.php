@@ -185,10 +185,11 @@ class RequestProfile
             $this->queriesSlow++;
         }
         $this->queriesTotalMs += $timeMs;
+        $scrubbedBindings = $this->scrubBindings($bindings);
         $this->queries[] = [
             'sql' => $this->truncate($sql, 2000),
-            'bindings' => array_slice($bindings, 0, 50),
-            'bound_sql' => $this->bindSql($sql, $bindings),
+            'bindings' => array_slice($scrubbedBindings, 0, 50),
+            'bound_sql' => $this->bindSql($sql, $scrubbedBindings),
             'time_ms' => round($timeMs, 3),
             'connection' => $connection,
             'is_slow' => $isSlow,
@@ -473,6 +474,25 @@ class RequestProfile
     private function scrubContext(array $context): array
     {
         return self::scrubSensitiveKeys($context);
+    }
+
+    private function scrubBindings(array $bindings): array
+    {
+        $sensitive = ['password', 'secret', 'token', 'api_key', 'apikey', 'credential', 'authorization', 'ssn', 'credit_card'];
+        $result = [];
+        foreach ($bindings as $key => $value) {
+            if (is_string($key)) {
+                foreach ($sensitive as $pattern) {
+                    if (stripos($key, $pattern) !== false) {
+                        $result[$key] = '[REDACTED]';
+                        continue 2;
+                    }
+                }
+            }
+            $result[$key] = $value;
+        }
+
+        return $result;
     }
 
     private function bindSql(string $sql, array $bindings): string

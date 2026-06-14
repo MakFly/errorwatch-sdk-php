@@ -114,7 +114,8 @@ return [
     // User context configuration
     'user_context' => [
         'enabled' => true,
-        'capture_ip' => true,
+        // Disabled by default — IP is PII under GDPR. Enable explicitly if needed.
+        'capture_ip' => false,
     ],
 
     // Console commands configuration
